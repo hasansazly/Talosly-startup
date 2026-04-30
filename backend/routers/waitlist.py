@@ -131,10 +131,15 @@ async def keys():
 
 @admin_router.post("/keys/create")
 async def create_manual_key(name: str = "Dev key"):
-    raw_key = "tals_" + secrets.token_hex(16)
-    await db.create_api_key(hashlib.sha256(raw_key.encode()).hexdigest(), raw_key[:9], name)
-    logger.info("key.created", key_prefix=raw_key[:9], name=name)
-    return {"api_key": raw_key, "message": "One-time display. Save this key."}
+    try:
+        await db.init_db()
+        raw_key = "tals_" + secrets.token_hex(16)
+        await db.create_api_key(hashlib.sha256(raw_key.encode()).hexdigest(), raw_key[:9], name)
+        logger.info("key.created", key_prefix=raw_key[:9], name=name)
+        return {"api_key": raw_key, "message": "One-time display. Save this key."}
+    except Exception as exc:
+        logger.error("key.create.failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=f"API key creation failed: {exc}") from exc
 
 
 @admin_router.delete("/keys/{key_id}")
