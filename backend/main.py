@@ -32,6 +32,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def normalize_vercel_paths(request: Request, call_next):
+    path = request.scope.get("path", "")
+    for prefix in ("/api/index.py", "/api/index"):
+        if path == prefix:
+            request.scope["path"] = "/api/health"
+            break
+        if path.startswith(f"{prefix}/"):
+            request.scope["path"] = "/api/" + path.removeprefix(f"{prefix}/")
+            break
+    return await call_next(request)
+
 app.include_router(protocols_router, prefix="/api/protocols", tags=["protocols"])
 app.include_router(transactions_router, prefix="/api/transactions", tags=["transactions"])
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
