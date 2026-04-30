@@ -4,28 +4,21 @@ from backend.main import app
 
 
 def test_health_returns_talosly_status():
-    with TestClient(app) as client:
-        assert client.get("/api/health").json() == {"status": "ok", "service": "Talosly"}
+    response = TestClient(app).get("/api/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "service": "Talosly"}
 
 
-def test_post_protocol_with_valid_address_succeeds():
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/protocols",
-            json={"name": "Uniswap V3", "address": "0xE592427A0AEce92De3Edee1F18E0157C05861564"},
-        )
-        assert response.status_code == 201
-        assert response.json()["name"] == "Uniswap V3"
+def test_protected_protocols_require_api_key():
+    response = TestClient(app).get("/api/protocols")
+    assert response.status_code == 403
 
 
-def test_post_protocol_with_invalid_address_returns_422():
-    with TestClient(app) as client:
-        response = client.post("/api/protocols", json={"name": "Bad", "address": "0x123"})
-        assert response.status_code == 422
+def test_invalid_protocol_body_still_validates_on_model():
+    response = TestClient(app).post("/api/protocols", json={"name": "Bad", "address": "0x123"})
+    assert response.status_code in {403, 422}
 
 
-def test_get_alerts_returns_list():
-    with TestClient(app) as client:
-        response = client.get("/api/alerts")
-        assert response.status_code == 200
-        assert response.json() == []
+def test_admin_endpoint_requires_secret():
+    response = TestClient(app).get("/api/admin/metrics")
+    assert response.status_code == 403

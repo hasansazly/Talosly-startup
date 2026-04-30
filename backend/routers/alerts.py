@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from backend import database as db
+from backend.middleware.auth import verify_api_key
 from backend.models import AlertResponse
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(verify_api_key)])
 
 
 @router.get("", response_model=list[AlertResponse])

@@ -1,7 +1,7 @@
 import re
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
@@ -56,3 +56,23 @@ class RiskScoreResponse(BaseModel):
     risk_score: int = Field(ge=0, le=100)
     risk_summary: str
     risk_factors: List[str] = Field(default_factory=list, max_length=3)
+
+
+class WaitlistApply(BaseModel):
+    email: EmailStr
+    name: Optional[str] = Field(default=None, max_length=120)
+    project: Optional[str] = Field(default=None, max_length=160)
+    twitter: Optional[str] = Field(default=None, max_length=80)
+    goal: Optional[str] = Field(default=None, max_length=1000)
+
+
+class WaitlistResponse(BaseModel):
+    id: int
+    email: str
+    name: Optional[str]
+    project: Optional[str]
+    twitter: Optional[str]
+    status: str
+    api_key_id: Optional[int]
+    applied_at: str
+    reviewed_at: Optional[str]

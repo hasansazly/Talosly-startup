@@ -8,6 +8,7 @@ export default function Header({ online, lastUpdated }) {
         <div className="subtitle">DeFi Security Monitor</div>
       </div>
       <div className="header-right">
+        <Link to="/" className="nav-link">Home</Link>
         <Link to="/alerts" className="nav-link">Alert History</Link>
         <div className="status">
           <span className={`status-dot ${online ? 'online' : ''}`} />

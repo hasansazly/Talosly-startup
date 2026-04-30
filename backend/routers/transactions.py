@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend import database as db
+from backend.middleware.auth import verify_api_key
 from backend.models import RiskScoreResponse, TransactionResponse
 from backend.services.scorer import TransactionScorer
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(verify_api_key)])
 
 
 @router.get("", response_model=list[TransactionResponse])

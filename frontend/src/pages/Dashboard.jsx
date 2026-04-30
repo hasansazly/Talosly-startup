@@ -11,6 +11,7 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState([]);
   const [online, setOnline] = useState(false);
   const [lastUpdated, setLastUpdated] = useState('');
+  const [apiKey, setApiKey] = useState(sessionStorage.getItem('talosly_api_key') || localStorage.getItem('talosly_api_key') || '');
 
   const activeProtocol = useMemo(() => protocols.find((item) => item.is_active) || protocols[0], [protocols]);
 
@@ -43,6 +44,22 @@ export default function Dashboard() {
   return (
     <main className="app-shell">
       <Header online={online} lastUpdated={lastUpdated} />
+      {!apiKey && (
+        <section className="panel key-panel">
+          <div>
+            <div className="panel-label">Beta API key required</div>
+            <h2>Connect your Talosly beta key</h2>
+          </div>
+          <form className="add-form" onSubmit={(event) => {
+            event.preventDefault();
+            sessionStorage.setItem('talosly_api_key', apiKey);
+            load();
+          }}>
+            <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="tals_..." required />
+            <button type="submit">Use Key</button>
+          </form>
+        </section>
+      )}
       <ProtocolCard protocol={activeProtocol} transactionCount={transactions.length} onAdd={handleAdd} />
       <section className="panel table-panel">
         <div className="panel-heading">

@@ -35,6 +35,28 @@ button {
   cursor: pointer;
   padding: 10px 14px;
 }
+.button-link, .primary-link {
+  background: var(--accent);
+  border-color: var(--accent-dim);
+  color: white;
+}
+.button-link {
+  border: 1px solid var(--accent-dim);
+  border-radius: 6px;
+  display: inline-block;
+  padding: 12px 16px;
+  text-decoration: none;
+}
+textarea {
+  min-height: 110px;
+  resize: vertical;
+  background: #0f172a;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  padding: 10px 12px;
+}
 input {
   min-width: 0;
   background: #0f172a;
@@ -201,6 +223,150 @@ th {
   margin-bottom: 12px;
 }
 .filters input { width: 84px; }
+.key-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.landing {
+  min-height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.landing-hero {
+  min-height: 92vh;
+  padding: 24px clamp(18px, 5vw, 72px);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border-bottom: 1px solid var(--border);
+}
+.landing-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.landing-nav div, .hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
+  gap: clamp(28px, 5vw, 80px);
+  align-items: center;
+}
+.hero-grid h1 {
+  max-width: 780px;
+  font-size: clamp(48px, 8vw, 112px);
+  line-height: 0.92;
+  margin: 10px 0 20px;
+}
+.hero-copy {
+  max-width: 620px;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1.5;
+}
+.stat-line {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  margin-top: 28px;
+}
+.terminal-panel {
+  background: #070a10;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+.terminal-title {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  margin-bottom: 12px;
+}
+.feed-row {
+  display: grid;
+  grid-template-columns: 1fr 100px 120px;
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  padding: 10px 0;
+}
+.landing-band {
+  padding: clamp(42px, 7vw, 96px) clamp(18px, 5vw, 72px);
+  border-bottom: 1px solid var(--border);
+}
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 42px;
+}
+.two-col h2, .landing-band h2 {
+  font-size: clamp(28px, 4vw, 52px);
+}
+.two-col p, .landing-band p {
+  color: var(--text-secondary);
+  font-size: 19px;
+  line-height: 1.6;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.steps article {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 22px;
+  background: var(--bg-surface);
+}
+.steps span {
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+.quote {
+  text-align: center;
+}
+.quote p {
+  color: var(--text-primary);
+  font-size: clamp(26px, 4vw, 46px);
+}
+.quote span {
+  color: var(--text-secondary);
+}
+.apply-section {
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) minmax(0, 620px);
+  gap: 36px;
+  align-items: start;
+}
+.beta-form {
+  display: grid;
+  gap: 12px;
+}
+.form-message {
+  color: var(--risk-low);
+  font-weight: 700;
+}
+.landing-footer {
+  padding: 24px clamp(18px, 5vw, 72px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  color: var(--text-secondary);
+}
+.admin-shell .stats-row {
+  grid-template-columns: repeat(6, 1fr);
+}
+.key-modal {
+  border-color: var(--accent);
+}
 
 @media (max-width: 760px) {
   .app-shell { padding: 14px; }
@@ -208,4 +374,8 @@ th {
   .add-form { grid-template-columns: 1fr; width: 100%; }
   .stats-row { grid-template-columns: 1fr; }
   .stats-row div { border-right: 0; border-bottom: 1px solid var(--border); }
+  .hero-grid, .two-col, .steps, .apply-section, .admin-shell .stats-row { grid-template-columns: 1fr; }
+  .hero-grid h1 { font-size: 48px; }
+  .feed-row { grid-template-columns: 1fr; }
+  .landing-footer { align-items: flex-start; flex-direction: column; }
 }

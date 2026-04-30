@@ -14,7 +14,7 @@ class EthereumRPCClient:
 
     async def _call(self, method: str, params: list[Any]) -> Any:
         payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
-        # TODO: enforce HTTPS in production.
+        # Production deployments should use HTTPS RPC endpoints.
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(self.rpc_url, json=payload)
             response.raise_for_status()
