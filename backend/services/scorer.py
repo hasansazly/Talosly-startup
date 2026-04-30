@@ -3,7 +3,7 @@ import logging
 import re
 from typing import Any
 
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI, OpenAIError
 from pydantic import ValidationError
 
 from backend.config import settings
@@ -40,10 +40,10 @@ Be conservative. When uncertain, lean toward a higher score. A false positive al
 
 
 class TransactionScorer:
-    """Talosly Claude-powered risk scoring service."""
+    """Talosly OpenAI-powered risk scoring service."""
 
     def __init__(self) -> None:
-        self.client = AsyncAnthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else None
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
 
     async def score_transaction(self, transaction: dict[str, Any], protocol: dict[str, Any]) -> RiskScoreResponse:
         if not self.client:
@@ -51,32 +51,37 @@ class TransactionScorer:
                 tx_hash=transaction["tx_hash"],
                 risk_score=50,
                 risk_summary="Scoring unavailable",
-                risk_factors=["Anthropic API key not configured"],
+                risk_factors=["OpenAI API key not configured"],
             )
         prompt = self._build_prompt(transaction, protocol)
         for attempt in range(2):
             try:
-                message = await self.client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                message = await self.client.chat.completions.create(
+                    model=settings.openai_model,
                     max_tokens=300,
                     temperature=0,
-                    system=SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
                 )
-                content = "".join(block.text for block in message.content if getattr(block, "type", "") == "text")
+                content = message.choices[0].message.content or ""
                 parsed = self._parse_response(content)
                 return RiskScoreResponse(tx_hash=transaction["tx_hash"], **parsed)
             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
                 if attempt == 1:
                     logger.warning("Talosly scoring parse failed: %s", exc)
-            except Exception as exc:
+            except OpenAIError as exc:
                 logger.exception("Talosly scoring failed: %s", exc)
+                break
+            except Exception as exc:
+                logger.exception("Talosly unexpected scoring failure: %s", exc)
                 break
         return RiskScoreResponse(
             tx_hash=transaction["tx_hash"],
             risk_score=50,
             risk_summary="Scoring unavailable",
-            risk_factors=["Claude scoring failed"],
+            risk_factors=["OpenAI scoring failed"],
         )
 
     def _build_prompt(self, transaction: dict[str, Any], protocol: dict[str, Any]) -> str:

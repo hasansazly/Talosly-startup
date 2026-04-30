@@ -7,7 +7,7 @@
 
 Talosly is an automated DeFi security monitoring system. Add your Ethereum
 contract address. Talosly watches transactions hitting your protocol, scores
-each one for risk using Claude AI, and sends instant Telegram alerts for
+each one for risk using OpenAI GPT-4o-mini, and sends instant Telegram alerts for
 anything suspicious.
 
 Most protocols cannot afford enterprise security monitoring before they have
@@ -18,7 +18,7 @@ can run before they raise.
 
 1. Add your protocol's contract address to Talosly.
 2. The monitoring worker polls new Ethereum blocks every 15 seconds.
-3. Each transaction is analyzed by Claude with a risk score from 0-100.
+3. Each transaction is analyzed by OpenAI GPT-4o-mini with a risk score from 0-100.
 4. Score above 70 creates an alert and sends Telegram notification.
 5. Full transaction and alert history is available on the dashboard.
 
@@ -28,7 +28,7 @@ can run before they raise.
 - **Worker:** Python asyncio polling loop
 - **Database:** PostgreSQL
 - **Frontend:** React 18 + Vite
-- **Risk Scoring:** Claude via Anthropic API
+- **Risk Scoring:** OpenAI GPT-4o-mini
 - **Blockchain:** Ethereum JSON-RPC, Alchemy compatible
 - **Alerts:** Telegram Bot API
 - **Deploy:** Docker Compose
@@ -43,7 +43,7 @@ Talosly is currently in free beta. Apply from the landing page.
 
 - Docker + Docker Compose
 - Alchemy API key or Ethereum RPC URL
-- Anthropic API key
+- OpenAI API key
 - Telegram bot token and chat ID
 
 ### Setup
@@ -131,7 +131,7 @@ Dashboard (React) -> FastAPI Backend-|
                     API Key Auth      |
                          |            v
                     Background Worker -> Ethereum RPC
-                                      -> Claude API
+                                      -> OpenAI API
                                       -> Telegram Bot
 ```
 
@@ -147,4 +147,4 @@ cd frontend && npm run build
 Talosly v0.2.0 is a free beta launch build. It is designed for early user
 testing, accelerator demos, and low-cost monitoring experiments.
 
-Built with Claude. Monitoring DeFi so you do not have to.
+Built with Codex. Monitoring DeFi so you do not have to.
