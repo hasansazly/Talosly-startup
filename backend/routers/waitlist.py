@@ -95,12 +95,46 @@ async def reject_waitlist(waitlist_id: int):
 
 @admin_router.get("/metrics")
 async def metrics():
-    return await db.get_admin_metrics()
+    try:
+        return await db.get_admin_metrics()
+    except Exception as exc:
+        logger.warning("admin.metrics.fallback", error=str(exc))
+        return {
+            "overview": {
+                "total_api_keys": 0,
+                "active_api_keys": 0,
+                "waitlist_pending": 0,
+                "protocols_monitored": 0,
+                "transactions_scored_total": 0,
+                "alerts_fired_total": 0,
+                "requests_today": 0,
+            },
+            "top_keys_by_usage": [],
+            "daily_requests_last_7_days": [],
+            "risk_score_distribution": {
+                "low_0_30": 0,
+                "medium_31_60": 0,
+                "elevated_61_70": 0,
+                "high_71_100": 0,
+            },
+        }
 
 
 @admin_router.get("/keys")
 async def keys():
-    return await db.list_api_keys()
+    try:
+        return await db.list_api_keys()
+    except Exception as exc:
+        logger.warning("admin.keys.fallback", error=str(exc))
+        return []
+
+
+@admin_router.post("/keys/create")
+async def create_manual_key(name: str = "Dev key"):
+    raw_key = "tals_" + secrets.token_hex(16)
+    await db.create_api_key(hashlib.sha256(raw_key.encode()).hexdigest(), raw_key[:9], name)
+    logger.info("key.created", key_prefix=raw_key[:9], name=name)
+    return {"api_key": raw_key, "message": "One-time display. Save this key."}
 
 
 @admin_router.delete("/keys/{key_id}")

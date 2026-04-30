@@ -41,4 +41,5 @@ export const getAdminWaitlist = () => unwrap(api.get('/api/admin/waitlist', { he
 export const approveWaitlist = (id) => unwrap(api.post(`/api/admin/waitlist/${id}/approve`, null, { headers: adminHeaders() }));
 export const rejectWaitlist = (id) => unwrap(api.post(`/api/admin/waitlist/${id}/reject`, null, { headers: adminHeaders() }));
 export const getAdminKeys = () => unwrap(api.get('/api/admin/keys', { headers: adminHeaders() }));
+export const createAdminKey = (name = 'Dev key') => unwrap(api.post('/api/admin/keys/create', null, { params: { name }, headers: adminHeaders() }));
 export const revokeKey = (id) => unwrap(api.delete(`/api/admin/keys/${id}`, { headers: adminHeaders() }));

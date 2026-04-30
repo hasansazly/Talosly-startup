@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { approveWaitlist, getAdminKeys, getAdminMetrics, getAdminWaitlist, rejectWaitlist, revokeKey } from '../api.js';
+import { approveWaitlist, createAdminKey, getAdminKeys, getAdminMetrics, getAdminWaitlist, rejectWaitlist, revokeKey } from '../api.js';
 
 export default function Admin() {
   const [secret, setSecret] = useState(sessionStorage.getItem('talosly_admin_secret') || '');
@@ -7,12 +7,23 @@ export default function Admin() {
   const [waitlist, setWaitlist] = useState({ counts: {}, items: [] });
   const [keys, setKeys] = useState([]);
   const [shownKey, setShownKey] = useState('');
+  const [error, setError] = useState('');
 
   async function load() {
-    sessionStorage.setItem('talosly_admin_secret', secret);
-    setMetrics(await getAdminMetrics());
-    setWaitlist(await getAdminWaitlist());
-    setKeys(await getAdminKeys());
+    try {
+      setError('');
+      sessionStorage.setItem('talosly_admin_secret', secret);
+      const nextMetrics = await getAdminMetrics();
+      setMetrics(nextMetrics);
+      try {
+        setWaitlist(await getAdminWaitlist());
+      } catch {
+        setWaitlist({ counts: {}, items: [] });
+      }
+      setKeys(await getAdminKeys());
+    } catch (err) {
+      setError(err.message || 'Admin unlock failed');
+    }
   }
 
   useEffect(() => {
@@ -33,6 +44,7 @@ export default function Admin() {
           <form className="add-form" onSubmit={(event) => { event.preventDefault(); load(); }}>
             <input type="password" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder="ADMIN_SECRET" required />
             <button>Unlock</button>
+            {error && <div className="form-error">{error}</div>}
           </form>
         </section>
       </main>
@@ -50,6 +62,20 @@ export default function Admin() {
         <div><span>Active Keys</span><strong>{overview.active_api_keys || 0}</strong></div>
         <div><span>Pending</span><strong>{overview.waitlist_pending || 0}</strong></div>
         <div><span>Requests Today</span><strong>{overview.requests_today || 0}</strong></div>
+      </section>
+      <section className="panel">
+        <h2>Create API Key</h2>
+        <button onClick={async () => {
+          try {
+            setError('');
+            const result = await createAdminKey('Dev key');
+            setShownKey(result.api_key);
+            await load();
+          } catch (err) {
+            setError(err.message || 'Could not create key');
+          }
+        }}>Create Dev Key</button>
+        {error && <div className="form-error">{error}</div>}
       </section>
       {shownKey && (
         <section className="panel key-modal">
