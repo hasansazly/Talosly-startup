@@ -1,8 +1,10 @@
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend import database as db
 from backend.middleware.auth import verify_api_key
 from backend.models import ProtocolCreate, ProtocolResponse
+from backend.services.logger import logger
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
 
@@ -15,12 +17,21 @@ async def list_protocols():
 
 @router.post("", response_model=ProtocolResponse, status_code=201)
 async def create_protocol(payload: ProtocolCreate):
-    existing = await db.get_protocol_by_address(payload.address)
-    if existing:
-        raise HTTPException(status_code=409, detail={"error": "Protocol already exists", "detail": payload.address})
-    protocol_id = await db.insert_protocol(payload.name, payload.address)
-    protocol = await db.get_protocol(protocol_id)
-    return {**protocol, "is_active": bool(protocol["is_active"])}
+    try:
+        await db.init_db()
+        existing = await db.get_protocol_by_address(payload.address)
+        if existing:
+            raise HTTPException(status_code=409, detail={"error": "Protocol already exists", "detail": payload.address})
+        protocol_id = await db.insert_protocol(payload.name, payload.address)
+        protocol = await db.get_protocol(protocol_id)
+        return {**protocol, "is_active": bool(protocol["is_active"])}
+    except HTTPException:
+        raise
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(status_code=409, detail={"error": "Protocol already exists", "detail": payload.address}) from None
+    except Exception as exc:
+        logger.error("protocol.create.failed", error=str(exc), address=payload.address)
+        raise HTTPException(status_code=500, detail=f"Protocol creation failed: {exc}") from exc
 
 
 @router.delete("/{protocol_id}")
