@@ -95,12 +95,25 @@ async def health():
 
 @app.get("/api/stats")
 async def stats():
-    return await get_public_stats()
+    try:
+        return await get_public_stats()
+    except Exception as exc:
+        structured_logger.warning("api.stats.fallback", error=str(exc))
+        return {
+            "protocols_monitored": 0,
+            "transactions_scored": 0,
+            "alerts_fired": 0,
+            "uptime_days": 1,
+        }
 
 
 @app.get("/api/demo/transactions")
 async def demo_transactions(limit: int = 10):
-    return await __import__("backend.database", fromlist=["get_recent_transactions"]).get_recent_transactions(None, min(limit, 25))
+    try:
+        return await __import__("backend.database", fromlist=["get_recent_transactions"]).get_recent_transactions(None, min(limit, 25))
+    except Exception as exc:
+        structured_logger.warning("api.demo_transactions.fallback", error=str(exc))
+        return []
 
 
 @app.get("/health")
