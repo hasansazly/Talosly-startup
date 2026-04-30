@@ -80,8 +80,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.on_event("startup")
 async def startup():
-    await init_db()
-    logger.info("Talosly API started")
+    try:
+        await init_db()
+        logger.info("Talosly API started")
+    except Exception as exc:
+        logger.error("Talosly DB initialization failed: %s", exc)
+        structured_logger.error("api.db_init.failed", error=str(exc))
 
 
 @app.get("/api/health")
