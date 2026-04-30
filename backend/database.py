@@ -14,13 +14,22 @@ def _record_to_dict(row: asyncpg.Record | None) -> dict[str, Any] | None:
 async def init_db() -> None:
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(
-            settings.database_url,
-            min_size=1,
-            max_size=10,
-            command_timeout=30,
-        )
+        try:
+            _pool = await _create_pool(settings.database_url)
+        except OSError:
+            if not settings.database_public_url:
+                raise
+            _pool = await _create_pool(settings.database_public_url)
     await _create_tables()
+
+
+async def _create_pool(database_url: str) -> asyncpg.Pool:
+    return await asyncpg.create_pool(
+        database_url,
+        min_size=1,
+        max_size=10,
+        command_timeout=30,
+    )
 
 
 async def close_db() -> None:

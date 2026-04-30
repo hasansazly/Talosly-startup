@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     database_url: str = "postgresql://talosly:talosly_secret@localhost:5432/talosly"
+    database_public_url: str = ""
     poll_interval_seconds: int = 15
     risk_alert_threshold: int = 70
     backend_port: int = 8000
