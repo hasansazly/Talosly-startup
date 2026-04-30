@@ -8,10 +8,12 @@ export default function Admin() {
   const [keys, setKeys] = useState([]);
   const [shownKey, setShownKey] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   async function load() {
     try {
       setError('');
+      setNotice('');
       sessionStorage.setItem('talosly_admin_secret', secret);
       const nextMetrics = await getAdminMetrics();
       setMetrics(nextMetrics);
@@ -31,9 +33,39 @@ export default function Admin() {
   }, []);
 
   async function approve(id) {
-    const result = await approveWaitlist(id);
-    setShownKey(result.api_key);
-    await load();
+    try {
+      setError('');
+      const result = await approveWaitlist(id);
+      setShownKey(result.api_key);
+      await load();
+    } catch (err) {
+      setError(err.message || 'Approval failed');
+    }
+  }
+
+  async function copyShownKey() {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shownKey);
+      } else {
+        throw new Error('Clipboard API unavailable');
+      }
+      setNotice('Copied API key');
+    } catch {
+      setNotice('Copy failed. Select the key text and copy it manually.');
+    }
+  }
+
+  async function revoke(keyId) {
+    try {
+      setError('');
+      setNotice('');
+      await revokeKey(keyId);
+      setNotice('API key revoked');
+      await load();
+    } catch (err) {
+      setError(err.message || 'Could not revoke key');
+    }
   }
 
   if (!secret || !metrics) {
@@ -68,6 +100,7 @@ export default function Admin() {
         <button onClick={async () => {
           try {
             setError('');
+            setNotice('');
             const result = await createAdminKey('Dev key');
             setShownKey(result.api_key);
             await load();
@@ -76,12 +109,14 @@ export default function Admin() {
           }
         }}>Create Dev Key</button>
         {error && <div className="form-error">{error}</div>}
+        {notice && <div className="form-message">{notice}</div>}
       </section>
       {shownKey && (
         <section className="panel key-modal">
           <h2>API key shown once</h2>
-          <p className="mono">{shownKey}</p>
-          <button onClick={() => navigator.clipboard.writeText(shownKey)}>Copy</button>
+          <input className="mono key-output" readOnly value={shownKey} onFocus={(event) => event.target.select()} />
+          <button onClick={copyShownKey}>Copy</button>
+          {notice && <div className="form-message">{notice}</div>}
         </section>
       )}
       <section className="panel table-panel">
@@ -89,7 +124,15 @@ export default function Admin() {
         <div className="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Project</th><th>Twitter</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>{waitlist.items.map((item) => (
             <tr key={item.id}><td>{item.name}</td><td>{item.email}</td><td>{item.project}</td><td>{item.twitter}</td><td>{item.status}</td><td>
-              {item.status === 'pending' && <><button onClick={() => approve(item.id)}>Approve</button> <button onClick={async () => { await rejectWaitlist(item.id); await load(); }}>Reject</button></>}
+              {item.status === 'pending' && <><button onClick={() => approve(item.id)}>Approve</button> <button onClick={async () => {
+                try {
+                  setError('');
+                  await rejectWaitlist(item.id);
+                  await load();
+                } catch (err) {
+                  setError(err.message || 'Reject failed');
+                }
+              }}>Reject</button></>}
             </td></tr>
           ))}</tbody></table></div>
       </section>
@@ -97,8 +140,10 @@ export default function Admin() {
         <h2>Active API Keys</h2>
         <div className="table-wrap"><table><thead><tr><th>Prefix</th><th>Name</th><th>Today</th><th>Total</th><th>Last Used</th><th></th></tr></thead>
           <tbody>{keys.map((key) => (
-            <tr key={key.id}><td className="mono">{key.key_prefix}</td><td>{key.name}</td><td>{key.requests_today}</td><td>{key.requests_total}</td><td>{key.last_used_at}</td><td><button onClick={async () => { await revokeKey(key.id); await load(); }}>Revoke</button></td></tr>
+            <tr key={key.id}><td className="mono">{key.key_prefix}</td><td>{key.name}</td><td>{key.requests_today}</td><td>{key.requests_total}</td><td>{key.last_used_at}</td><td><button onClick={() => revoke(key.id)}>Revoke</button></td></tr>
           ))}</tbody></table></div>
+        {error && <div className="form-error">{error}</div>}
+        {notice && <div className="form-message">{notice}</div>}
       </section>
     </main>
   );

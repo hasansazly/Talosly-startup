@@ -367,6 +367,10 @@ th {
 .key-modal {
   border-color: var(--accent);
 }
+.key-output {
+  width: min(100%, 560px);
+  margin: 8px 12px 8px 0;
+}
 
 @media (max-width: 760px) {
   .app-shell { padding: 14px; }

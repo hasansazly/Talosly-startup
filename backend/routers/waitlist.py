@@ -144,6 +144,14 @@ async def create_manual_key(name: str = "Dev key"):
 
 @admin_router.delete("/keys/{key_id}")
 async def revoke_key(key_id: int):
-    if not await db.revoke_api_key(key_id):
-        raise HTTPException(status_code=404, detail="API key not found")
-    return {"message": "API key revoked"}
+    try:
+        await db.init_db()
+        if not await db.revoke_api_key(key_id):
+            raise HTTPException(status_code=404, detail="API key not found")
+        logger.info("key.revoked", key_id=key_id)
+        return {"message": "API key revoked"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("key.revoke.failed", key_id=key_id, error=str(exc))
+        raise HTTPException(status_code=500, detail=f"API key revoke failed: {exc}") from exc
