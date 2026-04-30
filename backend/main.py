@@ -36,6 +36,12 @@ app.include_router(protocols_router, prefix="/api/protocols", tags=["protocols"]
 app.include_router(transactions_router, prefix="/api/transactions", tags=["transactions"])
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
 
+# Vercel may strip the /api prefix when a rewrite targets api/index.py.
+# Keep the canonical /api routes above, and expose bare aliases for serverless routing.
+app.include_router(protocols_router, prefix="/protocols", tags=["protocols"])
+app.include_router(transactions_router, prefix="/transactions", tags=["transactions"])
+app.include_router(alerts_router, prefix="/alerts", tags=["alerts"])
+
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
@@ -55,3 +61,8 @@ async def startup():
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "Talosly"}
+
+
+@app.get("/health")
+async def health_alias():
+    return await health()
