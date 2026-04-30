@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { approveWaitlist, createAdminKey, getAdminKeys, getAdminMetrics, getAdminWaitlist, rejectWaitlist, revokeKey } from '../api.js';
+import { approveWaitlist, createAdminKey, getAdminKeys, getAdminMetrics, getAdminWaitlist, rejectWaitlist, revokeKey, validateAdminKey } from '../api.js';
 
 export default function Admin() {
   const [secret, setSecret] = useState(sessionStorage.getItem('talosly_admin_secret') || '');
@@ -9,6 +9,7 @@ export default function Admin() {
   const [shownKey, setShownKey] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [keyToValidate, setKeyToValidate] = useState('');
 
   async function load() {
     try {
@@ -111,6 +112,22 @@ export default function Admin() {
         {error && <div className="form-error">{error}</div>}
         {notice && <div className="form-message">{notice}</div>}
       </section>
+      <section className="panel">
+        <h2>Validate API Key</h2>
+        <form className="add-form" onSubmit={async (event) => {
+          event.preventDefault();
+          try {
+            setError('');
+            const result = await validateAdminKey(keyToValidate);
+            setNotice(result.valid ? `Valid key: ${result.key_prefix}` : result.message);
+          } catch (err) {
+            setError(err.message || 'Validation failed');
+          }
+        }}>
+          <input value={keyToValidate} onChange={(event) => setKeyToValidate(event.target.value)} placeholder="tals_..." />
+          <button>Validate</button>
+        </form>
+      </section>
       {shownKey && (
         <section className="panel key-modal">
           <h2>API key shown once</h2>
@@ -138,9 +155,9 @@ export default function Admin() {
       </section>
       <section className="panel table-panel">
         <h2>Active API Keys</h2>
-        <div className="table-wrap"><table><thead><tr><th>Prefix</th><th>Name</th><th>Today</th><th>Total</th><th>Last Used</th><th></th></tr></thead>
+        <div className="table-wrap"><table><thead><tr><th>Prefix</th><th>Name</th><th>Status</th><th>Today</th><th>Total</th><th>Last Used</th><th></th></tr></thead>
           <tbody>{keys.map((key) => (
-            <tr key={key.id}><td className="mono">{key.key_prefix}</td><td>{key.name}</td><td>{key.requests_today}</td><td>{key.requests_total}</td><td>{key.last_used_at}</td><td><button onClick={() => revoke(key.id)}>Revoke</button></td></tr>
+            <tr key={key.id}><td className="mono">{key.key_prefix}</td><td>{key.name}</td><td>{key.is_active ? 'Active' : 'Revoked'}</td><td>{key.requests_today}</td><td>{key.requests_total}</td><td>{key.last_used_at}</td><td>{key.is_active && <button onClick={() => revoke(key.id)}>Revoke</button>}</td></tr>
           ))}</tbody></table></div>
         {error && <div className="form-error">{error}</div>}
         {notice && <div className="form-message">{notice}</div>}

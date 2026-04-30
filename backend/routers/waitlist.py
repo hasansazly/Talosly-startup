@@ -129,6 +129,15 @@ async def keys():
         return []
 
 
+@admin_router.post("/keys/validate")
+async def validate_key(api_key: str):
+    key_hash = hashlib.sha256(api_key.strip().encode()).hexdigest()
+    row = await db.find_api_key_by_hash(key_hash)
+    if not row:
+        return {"valid": False, "message": "Invalid or inactive API key"}
+    return {"valid": True, "key_prefix": row["key_prefix"], "id": row["id"], "name": row["name"]}
+
+
 @admin_router.post("/keys/create")
 async def create_manual_key(name: str = "Dev key"):
     try:
