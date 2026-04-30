@@ -3,9 +3,27 @@ import axios from 'axios';
 const BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
 const api = axios.create({ baseURL: BASE });
+let currentApiKey = sessionStorage.getItem('talosly_api_key') || localStorage.getItem('talosly_api_key') || '';
+
+export function setStoredApiKey(key) {
+  currentApiKey = key.trim();
+  if (currentApiKey) {
+    sessionStorage.setItem('talosly_api_key', currentApiKey);
+    localStorage.setItem('talosly_api_key', currentApiKey);
+    api.defaults.headers.common.Authorization = `Bearer ${currentApiKey}`;
+  } else {
+    sessionStorage.removeItem('talosly_api_key');
+    localStorage.removeItem('talosly_api_key');
+    delete api.defaults.headers.common.Authorization;
+  }
+}
+
+if (currentApiKey) {
+  api.defaults.headers.common.Authorization = `Bearer ${currentApiKey}`;
+}
 
 function authHeaders() {
-  const key = sessionStorage.getItem('talosly_api_key') || localStorage.getItem('talosly_api_key');
+  const key = currentApiKey || sessionStorage.getItem('talosly_api_key') || localStorage.getItem('talosly_api_key');
   return key ? { Authorization: `Bearer ${key}` } : {};
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { addProtocol, getAlerts, getHealth, getProtocols, getTransactions } from '../api.js';
+import { addProtocol, getAlerts, getHealth, getProtocols, getTransactions, setStoredApiKey } from '../api.js';
 import AlertFeed from '../components/AlertFeed.jsx';
 import Header from '../components/Header.jsx';
 import ProtocolCard from '../components/ProtocolCard.jsx';
@@ -54,8 +54,7 @@ export default function Dashboard() {
           <form className="add-form" onSubmit={(event) => {
             event.preventDefault();
             const cleaned = apiKeyDraft.trim();
-            sessionStorage.setItem('talosly_api_key', cleaned);
-            localStorage.setItem('talosly_api_key', cleaned);
+            setStoredApiKey(cleaned);
             setSavedApiKey(cleaned);
             load();
           }}>
@@ -71,14 +70,20 @@ export default function Dashboard() {
             <p className="mono">{`${savedApiKey.slice(0, 9)}...${savedApiKey.slice(-6)}`}</p>
           </div>
           <button onClick={() => {
-            sessionStorage.removeItem('talosly_api_key');
-            localStorage.removeItem('talosly_api_key');
+            setStoredApiKey('');
             setSavedApiKey('');
             setApiKeyDraft('');
           }}>Change Key</button>
         </section>
       )}
-      <ProtocolCard protocol={activeProtocol} transactionCount={transactions.length} onAdd={handleAdd} />
+      {savedApiKey ? (
+        <ProtocolCard protocol={activeProtocol} transactionCount={transactions.length} onAdd={handleAdd} />
+      ) : (
+        <section className="panel">
+          <div className="panel-label">Protocol monitoring locked</div>
+          <h2>Enter and save your beta API key first.</h2>
+        </section>
+      )}
       <section className="panel table-panel">
         <div className="panel-heading">
           <div>
