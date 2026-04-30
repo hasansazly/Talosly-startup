@@ -79,3 +79,25 @@ async def health():
 @app.get("/health")
 async def health_alias():
     return await health()
+
+
+@app.get("/")
+async def root_health(request: Request):
+    return {
+        "status": "ok",
+        "service": "Talosly",
+        "path": request.scope.get("path", "/"),
+    }
+
+
+@app.api_route("/{path:path}", methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
+async def api_fallback(path: str, request: Request):
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "Not found",
+            "service": "Talosly",
+            "path": request.scope.get("path", ""),
+            "raw_path": request.scope.get("raw_path", b"").decode("utf-8", errors="ignore"),
+        },
+    )
