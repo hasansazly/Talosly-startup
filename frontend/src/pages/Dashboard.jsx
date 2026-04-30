@@ -11,7 +11,8 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState([]);
   const [online, setOnline] = useState(false);
   const [lastUpdated, setLastUpdated] = useState('');
-  const [apiKey, setApiKey] = useState(sessionStorage.getItem('talosly_api_key') || localStorage.getItem('talosly_api_key') || '');
+  const [savedApiKey, setSavedApiKey] = useState(sessionStorage.getItem('talosly_api_key') || localStorage.getItem('talosly_api_key') || '');
+  const [apiKeyDraft, setApiKeyDraft] = useState(savedApiKey);
 
   const activeProtocol = useMemo(() => protocols.find((item) => item.is_active) || protocols[0], [protocols]);
 
@@ -44,7 +45,7 @@ export default function Dashboard() {
   return (
     <main className="app-shell">
       <Header online={online} lastUpdated={lastUpdated} />
-      {!apiKey && (
+      {!savedApiKey && (
         <section className="panel key-panel">
           <div>
             <div className="panel-label">Beta API key required</div>
@@ -52,12 +53,29 @@ export default function Dashboard() {
           </div>
           <form className="add-form" onSubmit={(event) => {
             event.preventDefault();
-            sessionStorage.setItem('talosly_api_key', apiKey);
+            const cleaned = apiKeyDraft.trim();
+            sessionStorage.setItem('talosly_api_key', cleaned);
+            localStorage.setItem('talosly_api_key', cleaned);
+            setSavedApiKey(cleaned);
             load();
           }}>
-            <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="tals_..." required />
+            <input value={apiKeyDraft} onChange={(event) => setApiKeyDraft(event.target.value)} placeholder="tals_..." required />
             <button type="submit">Use Key</button>
           </form>
+        </section>
+      )}
+      {savedApiKey && (
+        <section className="panel key-panel compact-key-panel">
+          <div>
+            <div className="panel-label">Beta API key connected</div>
+            <p className="mono">{`${savedApiKey.slice(0, 9)}...${savedApiKey.slice(-6)}`}</p>
+          </div>
+          <button onClick={() => {
+            sessionStorage.removeItem('talosly_api_key');
+            localStorage.removeItem('talosly_api_key');
+            setSavedApiKey('');
+            setApiKeyDraft('');
+          }}>Change Key</button>
         </section>
       )}
       <ProtocolCard protocol={activeProtocol} transactionCount={transactions.length} onAdd={handleAdd} />
