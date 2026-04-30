@@ -4,10 +4,11 @@ FastAPI Backend
 """
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from backend.config import settings
 from backend.database import init_db
@@ -17,6 +18,8 @@ from backend.routers.transactions import router as transactions_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+ROOT_DIR = Path(__file__).resolve().parents[1]
+FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 
 app = FastAPI(
     title="Talosly API",
@@ -49,12 +52,6 @@ app.include_router(protocols_router, prefix="/api/protocols", tags=["protocols"]
 app.include_router(transactions_router, prefix="/api/transactions", tags=["transactions"])
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
 
-# Vercel may strip the /api prefix when a rewrite targets api/index.py.
-# Keep the canonical /api routes above, and expose bare aliases for serverless routing.
-app.include_router(protocols_router, prefix="/protocols", tags=["protocols"])
-app.include_router(transactions_router, prefix="/transactions", tags=["transactions"])
-app.include_router(alerts_router, prefix="/alerts", tags=["alerts"])
-
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
@@ -83,15 +80,21 @@ async def health_alias():
 
 @app.get("/")
 async def root_health(request: Request):
-    return {
-        "status": "ok",
-        "service": "Talosly",
-        "path": request.scope.get("path", "/"),
-    }
+    index_path = FRONTEND_DIST / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"status": "ok", "service": "Talosly", "path": request.scope.get("path", "/")}
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
 async def api_fallback(path: str, request: Request):
+    if not path.startswith("api/"):
+        asset_path = (FRONTEND_DIST / path).resolve()
+        if FRONTEND_DIST in asset_path.parents and asset_path.is_file():
+            return FileResponse(asset_path)
+        index_path = FRONTEND_DIST / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
     return JSONResponse(
         status_code=404,
         content={
