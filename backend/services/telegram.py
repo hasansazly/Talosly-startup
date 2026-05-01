@@ -36,14 +36,16 @@ class TelegramService:
             return False
 
     def _format_message(self, protocol: dict[str, Any], transaction: dict[str, Any], score_result: Any) -> str:
-        score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
+        risk_score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
+        protocol_name = protocol.get("name", "Unknown")
         tx_hash = transaction.get("tx_hash", "")
-        return (
+        message = (
             "<b>🚨 New Risk Alert 🚨</b>\n\n"
-            f"<b>Protocol:</b> {html.escape(str(protocol.get('name', 'Unknown')))}\n"
-            f"<b>Score:</b> <code>{html.escape(str(score))}</code>\n"
+            f"<b>Protocol:</b> {html.escape(str(protocol_name))}\n"
+            f"<b>Score:</b> <code>{html.escape(str(risk_score))}</code>\n"
             f"<b>TX:</b> <code>{html.escape(tx_hash)}</code>"
         )
+        return message
 
     def _shorten(self, address: str) -> str:
         if len(address) <= 18:
