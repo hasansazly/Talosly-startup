@@ -129,6 +129,11 @@ async def root_health(request: Request):
     return {"status": "ok", "service": "Talosly", "path": request.scope.get("path", "/")}
 
 
+@app.head("/")
+async def head_root():
+    return {}
+
+
 @app.api_route("/{path:path}", methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
 async def api_fallback(path: str, request: Request):
     if not path.startswith("api/"):
