@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -25,7 +26,7 @@ class ProtocolResponse(BaseModel):
     address: str
     chain: str
     is_active: bool
-    created_at: str
+    created_at: datetime
     last_seen_block: Optional[int] = None
 
 
