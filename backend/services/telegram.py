@@ -37,24 +37,13 @@ class TelegramService:
 
     def _format_message(self, protocol: dict[str, Any], transaction: dict[str, Any], score_result: Any) -> str:
         score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
-        summary = getattr(score_result, "risk_summary", "") if not isinstance(score_result, dict) else score_result.get("risk_summary", "")
-        factors = getattr(score_result, "risk_factors", []) if not isinstance(score_result, dict) else score_result.get("risk_factors", [])
         tx_hash = transaction.get("tx_hash", "")
-        factor_lines = "\n".join(f"• {html.escape(str(factor))}" for factor in factors[:3])
-        return f"""🚨 <b>Talosly Alert</b> — Risk Score: {html.escape(str(score))}/100
-
-<b>Protocol:</b> {html.escape(str(protocol.get('name', 'Unknown')))}
-<b>TX Hash:</b> <code>{html.escape(self._shorten(tx_hash))}</code>
-<b>From:</b> <code>{html.escape(self._shorten(transaction.get('from_address') or ''))}</code>
-<b>Value:</b> {html.escape(str(transaction.get('value_eth', 0)))} ETH
-<b>Summary:</b> {html.escape(str(summary))}
-
-<b>Risk Factors:</b>
-{factor_lines}
-
-🔍 <a href="https://etherscan.io/tx/{html.escape(tx_hash)}">View on Etherscan</a>
-
-— Talosly Security Monitor"""
+        return (
+            "<b>🚨 New Risk Alert 🚨</b>\n\n"
+            f"<b>Protocol:</b> {html.escape(str(protocol.get('name', 'Unknown')))}\n"
+            f"<b>Score:</b> <code>{html.escape(str(score))}</code>\n"
+            f"<b>TX:</b> <code>{html.escape(tx_hash)}</code>"
+        )
 
     def _shorten(self, address: str) -> str:
         if len(address) <= 18:
