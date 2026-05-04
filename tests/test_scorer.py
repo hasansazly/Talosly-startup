@@ -36,6 +36,21 @@ async def test_json_response_parses_into_risk_score_response(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_new_security_prompt_response_parses_into_existing_api_shape(monkeypatch):
+    async def fake_create(self, **kwargs):
+        assert "Return ONLY this JSON" in kwargs["messages"][0]["content"]
+        return Message('{"score": 72, "reason": "Approval exceeds safe threshold", "pattern": "APPROVAL", "action": "ALERT"}')
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(AsyncCompletions, "create", fake_create)
+    scorer = TransactionScorer()
+    result = await scorer.score_transaction({"tx_hash": "0xabc", "input_data": "0x"}, {"name": "Talosly Test"})
+    assert result.risk_score == 72
+    assert result.risk_summary == "Approval exceeds safe threshold"
+    assert result.risk_factors == ["APPROVAL", "ALERT"]
+
+
+@pytest.mark.asyncio
 async def test_malformed_json_falls_back_to_score_50(monkeypatch):
     async def fake_create(self, **_kwargs):
         return Message("not json")

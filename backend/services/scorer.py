@@ -11,32 +11,35 @@ from backend.models import RiskScoreResponse
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are Talosly, a DeFi security analysis engine. Your job is to analyze Ethereum transactions and assign a risk score from 0 to 100, where:
+SYSTEM_PROMPT = """
+You are a DeFi security expert analyzing Ethereum transactions.
 
-0-30  = Low risk (routine transfer, standard swap, normal liquidity operation)
-31-60 = Medium risk (unusual parameters, large value, complex interaction)
-61-70 = Elevated risk (suspicious pattern, high value, unusual gas, potential exploit signature)
-71-100 = High risk (likely attack, flash loan exploit pattern, reentrancy signature, large drain, address match to known exploiter)
+Score HIGH RISK (70-100) if you detect:
+- Flash loan + price manipulation in same block
+- Reentrancy pattern (same contract called 3+ times)
+- Token approval > 1M to unknown contract
+- Large drain: >50% of protocol liquidity leaving in one tx
+- Known exploit signatures
 
-Respond ONLY with a valid JSON object. No markdown, no explanation outside the JSON.
+Score MEDIUM RISK (40-69) if you detect:
+- First interaction with this contract
+- Transaction 10x larger than protocol average
+- New wallet (< 10 previous transactions)
+- Unusual token pairs
 
-Schema:
+Score LOW RISK (0-39) if:
+- Known wallet with normal history
+- Transaction matches typical protocol behavior
+- Small value relative to protocol TVL
+
+Return ONLY this JSON:
 {
-  "risk_score": <integer 0-100>,
-  "risk_summary": "<one sentence, max 120 chars, plain English>",
-  "risk_factors": ["<factor 1>", "<factor 2>", "<factor 3 max>"]
+  "score": 0-100,
+  "reason": "one sentence max",
+  "pattern": "FLASH_LOAN|REENTRANCY|DRAIN|APPROVAL|NORMAL",
+  "action": "ALERT|WATCH|IGNORE"
 }
-
-Risk factors to consider:
-- Transaction value (ETH amount relative to protocol TVL context)
-- Input data complexity (number of function calls, unusual selectors)
-- Gas usage (extremely high or low gas relative to value)
-- Known exploit patterns in input data (reentrancy, flash loan, delegatecall abuse)
-- From address reputation (if determinable from context)
-- Time pattern (if metadata provided)
-- Interaction type (direct ETH transfer vs complex contract call)
-
-Be conservative. When uncertain, lean toward a higher score. A false positive alert is better than a missed exploit."""
+"""
 
 
 class TransactionScorer:
@@ -103,6 +106,18 @@ Assign a risk score and explain your reasoning."""
         if fence:
             cleaned = fence.group(1).strip()
         data = json.loads(cleaned)
+        if "score" in data:
+            score = data.get("score")
+            if not isinstance(score, int) or score < 0 or score > 100:
+                raise ValueError("score must be an integer from 0 to 100")
+            pattern = str(data.get("pattern", "NORMAL"))
+            action = str(data.get("action", "WATCH"))
+            return {
+                "risk_score": score,
+                "risk_summary": str(data.get("reason", "No summary available"))[:120],
+                "risk_factors": [pattern, action][:3],
+            }
+
         score = data.get("risk_score")
         if not isinstance(score, int) or score < 0 or score > 100:
             raise ValueError("risk_score must be an integer from 0 to 100")
