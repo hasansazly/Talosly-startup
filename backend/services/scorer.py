@@ -48,6 +48,47 @@ class TransactionScorer:
     def __init__(self) -> None:
         self.client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
 
+    def pre_screen(self, transaction: dict[str, Any]) -> RiskScoreResponse | None:
+        tx_hash = transaction["tx_hash"]
+        to_address = (transaction.get("to_address") or "").lower()
+        from_address = (transaction.get("from_address") or "").lower()
+        value_eth = transaction.get("value_eth") or 0
+        input_data = transaction.get("input_data") or ""
+
+        # Known bad contracts - instant 99
+        BLACKLIST: list[str] = [
+            # add known exploit contracts here later
+            # "0xabc123...",
+        ]
+        if to_address in BLACKLIST or from_address in BLACKLIST:
+            return RiskScoreResponse(
+                tx_hash=tx_hash,
+                risk_score=99,
+                risk_summary="Known exploit contract detected",
+                risk_factors=["KNOWN_EXPLOIT_CONTRACT"],
+            )
+
+        # Large value transaction - instant 85
+        if value_eth > 1000:
+            return RiskScoreResponse(
+                tx_hash=tx_hash,
+                risk_score=85,
+                risk_summary="Large value transaction detected",
+                risk_factors=["LARGE_VALUE_TRANSACTION"],
+            )
+
+        # Suspicious input data length - possible exploit payload
+        if len(input_data) >= 500:
+            return RiskScoreResponse(
+                tx_hash=tx_hash,
+                risk_score=75,
+                risk_summary="Large input data payload detected",
+                risk_factors=["LARGE_INPUT_DATA"],
+            )
+
+        # Nothing caught - send to OpenAI
+        return None
+
     async def score_transaction(self, transaction: dict[str, Any], protocol: dict[str, Any]) -> RiskScoreResponse:
         if not self.client:
             return RiskScoreResponse(
@@ -56,6 +97,11 @@ class TransactionScorer:
                 risk_summary="Scoring unavailable",
                 risk_factors=["OpenAI API key not configured"],
             )
+        # Pre-screen before calling OpenAI
+        pre_result = self.pre_screen(transaction)
+        if pre_result is not None:
+            return pre_result
+
         prompt = self._build_prompt(transaction, protocol)
         for attempt in range(2):
             try:
