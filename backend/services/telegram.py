@@ -32,7 +32,7 @@ class TelegramService:
                 if response.is_success:
                     return True
 
-                logger.warning("Talosly Telegram HTML send failed: status=%s body=%s", response.status_code, response.text[:500])
+                self._log_send_failure("HTML", response)
                 plain_payload = {
                     "chat_id": settings.telegram_chat_id,
                     "text": self._format_plain_message(message),
@@ -42,7 +42,7 @@ class TelegramService:
                 if retry.is_success:
                     return True
 
-                logger.warning("Talosly Telegram plain send failed: status=%s body=%s", retry.status_code, retry.text[:500])
+                self._log_send_failure("plain", retry)
                 return False
         except httpx.HTTPError as exc:
             logger.warning("Talosly Telegram request failed: %s", exc.__class__.__name__)
@@ -61,6 +61,16 @@ class TelegramService:
 
     def _format_plain_message(self, message: str) -> str:
         return html.unescape(re.sub(r"</?[^>]+>", "", message))
+
+    def _log_send_failure(self, mode: str, response: httpx.Response) -> None:
+        body = response.text[:500]
+        if response.status_code == 400 and "chat not found" in body.lower():
+            logger.warning(
+                "Talosly Telegram %s send failed: chat not found. Check TELEGRAM_CHAT_ID and confirm the bot has access to that chat.",
+                mode,
+            )
+            return
+        logger.warning("Talosly Telegram %s send failed: status=%s body=%s", mode, response.status_code, body)
 
     def _shorten(self, address: str) -> str:
         if len(address) <= 18:

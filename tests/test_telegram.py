@@ -96,3 +96,16 @@ async def test_telegram_send_retries_without_parse_mode_after_html_400(monkeypat
         "Score: 72\n"
         "TX: 0xabc"
     )
+
+
+def test_telegram_logs_specific_chat_not_found_message(caplog):
+    class FakeResponse:
+        status_code = 400
+        text = '{"ok":false,"description":"Bad Request: chat not found"}'
+
+    service = TelegramService()
+
+    service._log_send_failure("HTML", FakeResponse())
+
+    assert "chat not found" in caplog.text
+    assert "TELEGRAM_CHAT_ID" in caplog.text
