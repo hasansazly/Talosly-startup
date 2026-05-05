@@ -20,6 +20,7 @@ class TelegramService:
         url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
         try:
             async with httpx.AsyncClient(timeout=15) as client:
+                logger.info("DEBUG TELEGRAM MSG: %s", message)
                 response = await client.post(
                     url,
                     json={
@@ -37,13 +38,14 @@ class TelegramService:
 
     def _format_message(self, protocol: dict[str, Any], transaction: dict[str, Any], score_result: Any) -> str:
         risk_score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
-        protocol_name = protocol.get("name", "Unknown")
-        tx_hash = transaction.get("tx_hash", "")
+        protocol_name = html.escape(str(protocol.get("name", "Unknown")))
+        risk_score_text = html.escape(str(risk_score))
+        tx_hash = html.escape(str(transaction.get("tx_hash", "")))
         message = (
             "<b>🚨 New Risk Alert 🚨</b>\n\n"
-            f"<b>Protocol:</b> {html.escape(str(protocol_name))}\n"
-            f"<b>Score:</b> <code>{html.escape(str(risk_score))}</code>\n"
-            f"<b>TX:</b> <code>{html.escape(tx_hash)}</code>"
+            f"<b>Protocol:</b> {protocol_name}\n"
+            f"<b>Score:</b> <code>{risk_score_text}</code>\n"
+            f"<b>TX:</b> <code>{tx_hash}</code>"
         )
         return message
 
