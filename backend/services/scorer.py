@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from backend.config import settings
 from backend.models import RiskScoreResponse
-from backend.services.blacklist import BLACKLIST
+from .blacklist import BLACKLIST
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,25 @@ Return ONLY this JSON:
 """
 
 
+def norm(addr: str | None) -> str | None:
+    return addr.lower() if addr else None
+
+
+def value_as_eth(value: Any) -> float:
+    if value is None:
+        return 0
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            if value.startswith("0x"):
+                return int(value, 16) / 1_000_000_000_000_000_000
+            return float(value)
+        except ValueError:
+            return 0
+    return 0
+
+
 class TransactionScorer:
     """Talosly OpenAI-powered risk scoring service."""
 
@@ -51,18 +70,26 @@ class TransactionScorer:
 
     def pre_screen(self, transaction: dict[str, Any]) -> RiskScoreResponse | None:
         tx_hash = transaction["tx_hash"]
-        to_address = (transaction.get("to_address") or "").lower()
-        from_address = (transaction.get("from_address") or "").lower()
-        value_eth = transaction.get("value_eth") or 0
-        input_data = transaction.get("input_data") or ""
+        from_address = norm(transaction.get("from_address") or transaction.get("from"))
+        to_address = norm(transaction.get("to_address") or transaction.get("to"))
+        value_eth = value_as_eth(transaction.get("value_eth", transaction.get("value", 0)))
+        input_data = transaction.get("input_data", transaction.get("input", "")) or ""
 
-        # Known bad contracts - instant 99
-        if to_address in BLACKLIST or from_address in BLACKLIST:
+        # High-confidence hits return immediately to save deeper analysis costs.
+        if from_address in BLACKLIST or to_address in BLACKLIST:
             return RiskScoreResponse(
                 tx_hash=tx_hash,
-                risk_score=99,
-                risk_summary="Known exploit contract detected",
-                risk_factors=["KNOWN_EXPLOIT_CONTRACT"],
+                risk_score=98,
+                risk_summary="High-risk: Known malicious entity.",
+                risk_factors=["BLACKLISTED_ADDRESS"],
+            )
+
+        if from_address == to_address and from_address is not None:
+            return RiskScoreResponse(
+                tx_hash=tx_hash,
+                risk_score=78,
+                risk_summary="Suspicious self-transfer pattern.",
+                risk_factors=["SELF_TRANSFER"],
             )
 
         # Large value transaction - instant 85
@@ -74,13 +101,13 @@ class TransactionScorer:
                 risk_factors=["LARGE_VALUE_TRANSACTION"],
             )
 
-        # Suspicious input data length - possible exploit payload
-        if len(input_data) >= 500:
+        # Exploiters often test contracts with 0-value, high-data transactions.
+        if value_eth == 0 and len(input_data) >= 400:
             return RiskScoreResponse(
                 tx_hash=tx_hash,
-                risk_score=75,
-                risk_summary="Large input data payload detected",
-                risk_factors=["LARGE_INPUT_DATA"],
+                risk_score=72,
+                risk_summary="Zero-value transaction with unusually large payload.",
+                risk_factors=["PROBE_PATTERN"],
             )
 
         # Nothing caught - send to OpenAI

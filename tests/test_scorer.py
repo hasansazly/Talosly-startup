@@ -2,6 +2,7 @@ import pytest
 from openai.resources.chat.completions import AsyncCompletions
 
 from backend.config import settings
+from backend.services.blacklist import BLACKLIST
 from backend.services.scorer import TransactionScorer
 
 
@@ -67,3 +68,51 @@ def test_out_of_range_score_raises_validation_error():
     scorer = TransactionScorer()
     with pytest.raises(ValueError):
         scorer._parse_response('{"risk_score": 150, "risk_summary": "Bad", "risk_factors": []}')
+
+
+def test_pre_screen_flags_blacklisted_address():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x0000000000000000000000000000000000000000",
+            "to_address": next(iter(BLACKLIST)).upper(),
+            "input_data": "0x",
+            "value_eth": 0,
+        }
+    )
+    assert result is not None
+    assert result.risk_score == 98
+    assert result.risk_factors == ["BLACKLISTED_ADDRESS"]
+
+
+def test_pre_screen_flags_self_transfer():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x1111111111111111111111111111111111111111",
+            "input_data": "0x",
+            "value_eth": 0,
+        }
+    )
+    assert result is not None
+    assert result.risk_score == 78
+    assert result.risk_factors == ["SELF_TRANSFER"]
+
+
+def test_pre_screen_flags_zero_value_payload_probe_with_rpc_field_names():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from": "0x1111111111111111111111111111111111111111",
+            "to": "0x2222222222222222222222222222222222222222",
+            "input": "0x" + ("a" * 400),
+            "value": "0x0",
+        }
+    )
+    assert result is not None
+    assert result.risk_score == 72
+    assert result.risk_factors == ["PROBE_PATTERN"]
