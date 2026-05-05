@@ -9,6 +9,11 @@ from backend.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _safe_html_value(value: Any, fallback: str) -> str:
+    text = str(value or fallback).replace("\r", " ").replace("\n", " ").strip()
+    return html.escape(text)
+
+
 class TelegramService:
     """Talosly Telegram notification service."""
 
@@ -38,16 +43,16 @@ class TelegramService:
 
     def _format_message(self, protocol: dict[str, Any], transaction: dict[str, Any], score_result: Any) -> str:
         risk_score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
-        p_name = html.escape(str(protocol.get("name") or "Unknown")).strip()
-        s_text = html.escape(str(risk_score or "0")).strip()
-        h_text = html.escape(str(transaction.get("tx_hash") or "N/A")).strip()
-        message = (
+        p_name = _safe_html_value(protocol.get("name"), "Unknown")
+        s_val = _safe_html_value(risk_score, "0")
+        h_val = _safe_html_value(transaction.get("tx_hash"), "N/A")
+        msg = (
             "🚨 <b>New Risk Alert</b> 🚨\n"
             f"<b>Protocol:</b> {p_name}\n"
-            f"<b>Score:</b> <code>{s_text}</code>\n"
-            f"<b>TX:</b> <code>{h_text}</code>"
+            f"<b>Score:</b> <code>{s_val}</code>\n"
+            f"<b>TX:</b> <code>{h_val}</code>"
         )
-        return message
+        return msg
 
     def _shorten(self, address: str) -> str:
         if len(address) <= 18:
