@@ -84,11 +84,11 @@ class TransactionScorer:
                 risk_factors=["BLACKLISTED_ADDRESS"],
             )
 
-        if from_address == to_address and from_address is not None:
+        if norm(from_address) == norm(to_address) and from_address is not None:
             return RiskScoreResponse(
                 tx_hash=tx_hash,
                 risk_score=78,
-                risk_summary="Suspicious self-transfer pattern.",
+                risk_summary="Self-transfer detected",
                 risk_factors=["SELF_TRANSFER"],
             )
 
@@ -102,11 +102,11 @@ class TransactionScorer:
             )
 
         # Exploiters often test contracts with 0-value, high-data transactions.
-        if value_eth == 0 and len(input_data) >= 400:
+        if value_eth == 0 and len(input_data or "") >= 200:
             return RiskScoreResponse(
                 tx_hash=tx_hash,
                 risk_score=72,
-                risk_summary="Zero-value transaction with unusually large payload.",
+                risk_summary="Zero value with large payload",
                 risk_factors=["PROBE_PATTERN"],
             )
 

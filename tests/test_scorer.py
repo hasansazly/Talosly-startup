@@ -99,6 +99,7 @@ def test_pre_screen_flags_self_transfer():
     )
     assert result is not None
     assert result.risk_score == 78
+    assert result.risk_summary == "Self-transfer detected"
     assert result.risk_factors == ["SELF_TRANSFER"]
 
 
@@ -109,10 +110,11 @@ def test_pre_screen_flags_zero_value_payload_probe_with_rpc_field_names():
             "tx_hash": "0xabc",
             "from": "0x1111111111111111111111111111111111111111",
             "to": "0x2222222222222222222222222222222222222222",
-            "input": "0x" + ("a" * 400),
+            "input": "0x" + ("a" * 198),
             "value": "0x0",
         }
     )
     assert result is not None
     assert result.risk_score == 72
+    assert result.risk_summary == "Zero value with large payload"
     assert result.risk_factors == ["PROBE_PATTERN"]
