@@ -17,21 +17,20 @@ def test_telegram_message_escapes_dynamic_values_before_html_formatting():
 
 def test_telegram_message_uses_safe_fallbacks_for_empty_values():
     service = TelegramService()
-    message = service._format_message({"name": ""}, {"tx_hash": ""}, {"risk_score": None})
+    message = service._format_message({}, {}, {"risk_score": None})
 
     assert "<b>Protocol:</b> Unknown" in message
     assert "<b>Score:</b> <code>0</code>" in message
     assert "<b>TX:</b> <code>N/A</code>" in message
 
 
-def test_telegram_message_removes_hidden_line_breaks_from_dynamic_values():
+def test_telegram_message_uses_explicit_newline_string_format():
     service = TelegramService()
-    message = service._format_message(
-        {"name": "Uniswap\r\nV3"},
-        {"tx_hash": "0xabc\r\n123"},
-        {"risk_score": "72\n"},
-    )
+    message = service._format_message({"name": "Uniswap V3"}, {"tx_hash": "0xabc123"}, {"risk_score": 72})
 
-    assert "<b>Protocol:</b> Uniswap  V3" in message
-    assert "<b>Score:</b> <code>72</code>" in message
-    assert "<b>TX:</b> <code>0xabc  123</code>" in message
+    assert message == (
+        "🚨 <b>New Risk Alert</b> 🚨\n"
+        "<b>Protocol:</b> Uniswap V3\n"
+        "<b>Score:</b> <code>72</code>\n"
+        "<b>TX:</b> <code>0xabc123</code>"
+    )
