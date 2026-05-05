@@ -38,9 +38,9 @@ class TelegramService:
 
     def _format_message(self, protocol: dict[str, Any], transaction: dict[str, Any], score_result: Any) -> str:
         risk_score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
-        p_name = html.escape(str(protocol.get("name", "Unknown"))).strip()
-        s_val = html.escape(str(risk_score or "0")).strip()
-        h_val = html.escape(str(transaction.get("tx_hash", "N/A"))).strip()
+        p_name = html.escape(str(protocol.get("name") or "Unknown Protocol"))
+        s_val = html.escape(str(risk_score or "0"))
+        h_val = html.escape(str(transaction.get("tx_hash") or "No Hash Available"))
         msg = f"🚨 <b>New Risk Alert</b> 🚨\n<b>Protocol:</b> {p_name}\n<b>Score:</b> <code>{s_val}</code>\n<b>TX:</b> <code>{h_val}</code>"
         return msg
 
