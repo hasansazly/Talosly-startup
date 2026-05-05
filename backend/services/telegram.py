@@ -40,12 +40,12 @@ class TelegramService:
         risk_score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
         protocol_name = html.escape(str(protocol.get("name", "Unknown")))
         risk_score_text = html.escape(str(risk_score))
-        tx_hash = html.escape(str(transaction.get("tx_hash", "")))
+        safe_hash = html.escape(str(transaction.get("tx_hash") or "N/A"))
         message = (
             "<b>🚨 New Risk Alert 🚨</b>\n\n"
             f"<b>Protocol:</b> {protocol_name}\n"
             f"<b>Score:</b> <code>{risk_score_text}</code>\n"
-            f"<b>TX:</b> <code>{tx_hash}</code>"
+            f"<b>TX:</b> <code>{safe_hash}</code>"
         )
         return message
 
