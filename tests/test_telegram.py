@@ -19,6 +19,6 @@ def test_telegram_message_uses_safe_fallbacks_for_empty_values():
     service = TelegramService()
     message = service._format_message({"name": ""}, {"tx_hash": ""}, {"risk_score": None})
 
-    assert "<b>Protocol:</b> Unknown Protocol" in message
+    assert "<b>Protocol:</b> Unknown" in message
     assert "<b>Score:</b> <code>0</code>" in message
-    assert "<b>TX:</b> <code>No Hash Available</code>" in message
+    assert "<b>TX:</b> <code>N/A</code>" in message
