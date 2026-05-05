@@ -89,10 +89,16 @@ async def _create_tables() -> None:
                 risk_score INTEGER NOT NULL,
                 risk_summary TEXT,
                 telegram_sent BOOLEAN NOT NULL DEFAULT FALSE,
+                confirmed_threat BOOLEAN,
+                feedback_note TEXT,
+                reviewed_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """
         )
+        await conn.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS confirmed_threat BOOLEAN")
+        await conn.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS feedback_note TEXT")
+        await conn.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ")
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -257,6 +263,23 @@ async def insert_alert(transaction_id: int, risk_score: int, risk_summary: str) 
 async def mark_telegram_sent(alert_id: int) -> None:
     pool = await get_pool()
     await pool.execute("UPDATE alerts SET telegram_sent = TRUE WHERE id = $1", alert_id)
+
+
+async def submit_alert_feedback(alert_id: int, confirmed_threat: bool, feedback_note: str | None) -> bool:
+    pool = await get_pool()
+    status = await pool.execute(
+        """
+        UPDATE alerts
+        SET confirmed_threat = $1,
+            feedback_note = $2,
+            reviewed_at = NOW()
+        WHERE id = $3
+        """,
+        confirmed_threat,
+        feedback_note,
+        alert_id,
+    )
+    return status.endswith("1")
 
 
 async def get_recent_transactions(protocol_id: int | None = None, limit: int = 50) -> list[dict[str, Any]]:

@@ -52,6 +52,11 @@ class AlertResponse(BaseModel):
     created_at: str
 
 
+class AlertFeedback(BaseModel):
+    confirmed_threat: bool
+    feedback_note: Optional[str] = None
+
+
 class RiskScoreResponse(BaseModel):
     tx_hash: str
     risk_score: int = Field(ge=0, le=100)
