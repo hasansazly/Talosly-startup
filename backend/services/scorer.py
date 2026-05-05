@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from backend.config import settings
 from backend.models import RiskScoreResponse
+from backend.services.blacklist import BLACKLIST
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +57,6 @@ class TransactionScorer:
         input_data = transaction.get("input_data") or ""
 
         # Known bad contracts - instant 99
-        BLACKLIST: list[str] = [
-            # add known exploit contracts here later
-            # "0xabc123...",
-        ]
         if to_address in BLACKLIST or from_address in BLACKLIST:
             return RiskScoreResponse(
                 tx_hash=tx_hash,
