@@ -114,6 +114,11 @@ class TransactionScorer:
         return None
 
     async def score_transaction(self, transaction: dict[str, Any], protocol: dict[str, Any]) -> RiskScoreResponse:
+        # Pre-screen before calling OpenAI, and before checking OpenAI config.
+        pre_result = self.pre_screen(transaction)
+        if pre_result is not None:
+            return pre_result
+
         if not self.client:
             return RiskScoreResponse(
                 tx_hash=transaction["tx_hash"],
@@ -121,10 +126,6 @@ class TransactionScorer:
                 risk_summary="Scoring unavailable",
                 risk_factors=["OpenAI API key not configured"],
             )
-        # Pre-screen before calling OpenAI
-        pre_result = self.pre_screen(transaction)
-        if pre_result is not None:
-            return pre_result
 
         prompt = self._build_prompt(transaction, protocol)
         for attempt in range(2):
