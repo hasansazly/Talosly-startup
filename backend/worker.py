@@ -67,6 +67,8 @@ class TaloslyWorker:
         logger.info("worker.stopped")
 
     async def _poll_protocol(self, protocol: dict) -> tuple[int, int]:
+        pre_screened_this_loop = 0
+        openai_calls_this_loop = 0
         address = protocol["address"]
         latest_block = await self.rpc.get_latest_block_number()
         last_seen = self.last_seen_blocks.get(address) or protocol.get("last_seen_block") or latest_block - 10
@@ -77,8 +79,6 @@ class TaloslyWorker:
         raw_txs = await self.rpc.get_transactions_for_address(address, from_block, to_block)
         transactions_found = 0
         alerts_fired = 0
-        pre_screened_this_loop = 0
-        openai_scored_this_loop = 0
         for raw_tx in raw_txs:
             parsed = self.rpc.parse_transaction(raw_tx)
             tx_id, is_new = await db.upsert_transaction(protocol["id"], parsed)
@@ -90,7 +90,7 @@ class TaloslyWorker:
             if score_result.risk_factors:
                 pre_screened_this_loop += 1
             else:
-                openai_scored_this_loop += 1
+                openai_calls_this_loop += 1
             await db.update_transaction_score(tx_id, score_result.risk_score, score_result.risk_summary, score_result.risk_factors)
             logger.info("transaction.scored", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], risk_score=score_result.risk_score)
             if score_result.risk_score >= settings.risk_alert_threshold:
@@ -113,7 +113,7 @@ class TaloslyWorker:
                 date=datetime.date.today(),
                 total_scored=transactions_found,
                 pre_screened=pre_screened_this_loop,
-                openai_scored=openai_scored_this_loop,
+                openai_scored=openai_calls_this_loop,
                 alerts_fired=alerts_fired,
                 avg_score=avg_score or 0.0,
             )
