@@ -1,3 +1,5 @@
+import datetime
+import json
 from typing import Any
 
 import asyncpg
@@ -76,11 +78,13 @@ async def _create_tables() -> None:
                 input_data TEXT,
                 risk_score INTEGER,
                 risk_summary TEXT,
+                risk_factors JSONB NOT NULL DEFAULT '[]'::jsonb,
                 scored_at TIMESTAMPTZ,
                 fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """
         )
+        await conn.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS risk_factors JSONB NOT NULL DEFAULT '[]'::jsonb")
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS alerts (
@@ -155,6 +159,20 @@ async def _create_tables() -> None:
                 method TEXT NOT NULL,
                 status_code INTEGER,
                 response_ms INTEGER,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scoring_metrics (
+                id SERIAL PRIMARY KEY,
+                date DATE NOT NULL UNIQUE,
+                total_scored INTEGER NOT NULL DEFAULT 0,
+                pre_screened INTEGER NOT NULL DEFAULT 0,
+                openai_scored INTEGER NOT NULL DEFAULT 0,
+                alerts_fired INTEGER NOT NULL DEFAULT 0,
+                avg_score DOUBLE PRECISION NOT NULL DEFAULT 0,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """
@@ -236,16 +254,17 @@ async def upsert_transaction(protocol_id: int, tx_data_dict: dict[str, Any]) -> 
     return int(tx_id), True
 
 
-async def update_transaction_score(tx_id: int, risk_score: int, risk_summary: str) -> None:
+async def update_transaction_score(tx_id: int, risk_score: int, risk_summary: str, risk_factors: list[str] | None = None) -> None:
     pool = await get_pool()
     await pool.execute(
         """
         UPDATE transactions
-        SET risk_score = $1, risk_summary = $2, scored_at = NOW()
-        WHERE id = $3
+        SET risk_score = $1, risk_summary = $2, risk_factors = $3::jsonb, scored_at = NOW()
+        WHERE id = $4
         """,
         risk_score,
         risk_summary,
+        json.dumps(risk_factors or []),
         tx_id,
     )
 
@@ -498,3 +517,70 @@ async def get_admin_metrics() -> dict[str, Any]:
         "daily_requests_last_7_days": [{"date": str(row["date"]), "requests": row["requests"]} for row in daily],
         "risk_score_distribution": dict(distribution),
     }
+
+
+async def get_avg_score_today(protocol_id: int) -> float | None:
+    pool = await get_pool()
+    avg_score = await pool.fetchval(
+        """
+        SELECT AVG(risk_score)
+        FROM transactions
+        WHERE protocol_id = $1
+            AND fetched_at::date = CURRENT_DATE
+            AND risk_score IS NOT NULL
+        """,
+        protocol_id,
+    )
+    return float(avg_score) if avg_score is not None else None
+
+
+async def get_pre_screened_count_today(protocol_id: int) -> int:
+    pool = await get_pool()
+    count = await pool.fetchval(
+        """
+        SELECT COUNT(*)
+        FROM transactions
+        WHERE protocol_id = $1
+            AND fetched_at::date = CURRENT_DATE
+            AND risk_factors::text LIKE ANY(ARRAY[
+                '%KNOWN_EXPLOIT_CONTRACT%',
+                '%LARGE_VALUE_TRANSACTION%',
+                '%LARGE_INPUT_DATA%',
+                '%PROBE_PATTERN%',
+                '%SELF_TRANSFER%'
+            ])
+        """,
+        protocol_id,
+    )
+    return int(count or 0)
+
+
+async def upsert_scoring_metrics(
+    date: datetime.date,
+    total_scored: int,
+    pre_screened: int,
+    openai_scored: int,
+    alerts_fired: int,
+    avg_score: float,
+) -> None:
+    pool = await get_pool()
+    await pool.execute(
+        """
+        INSERT INTO scoring_metrics
+            (date, total_scored, pre_screened, openai_scored, alerts_fired, avg_score)
+        VALUES
+            ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (date) DO UPDATE SET
+            total_scored = scoring_metrics.total_scored + EXCLUDED.total_scored,
+            pre_screened = scoring_metrics.pre_screened + EXCLUDED.pre_screened,
+            openai_scored = scoring_metrics.openai_scored + EXCLUDED.openai_scored,
+            alerts_fired = scoring_metrics.alerts_fired + EXCLUDED.alerts_fired,
+            avg_score = EXCLUDED.avg_score
+        """,
+        date,
+        total_scored,
+        pre_screened,
+        openai_scored,
+        alerts_fired,
+        avg_score,
+    )
