@@ -209,7 +209,17 @@ def test_pre_screen_flags_zero_value_payload_probe_with_rpc_field_names():
 
 @pytest.mark.asyncio
 async def test_score_transaction_boosts_probe_pattern_to_alert_threshold(monkeypatch):
+    async def fake_address_label(_address):
+        return {
+            "label": None,
+            "is_dangerous": False,
+            "is_new_wallet": False,
+            "funded_by_tornado": False,
+            "tx_count": -1,
+        }
+
     monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr("backend.services.scorer.get_address_label", fake_address_label)
     scorer = TransactionScorer()
     result = await scorer.score_transaction(
         {
@@ -231,9 +241,19 @@ async def test_score_transaction_applies_wallet_reputation_multiplier(monkeypatc
     async def fake_reputation(_address):
         return {"is_new": True, "has_no_ens": True}
 
+    async def fake_address_label(_address):
+        return {
+            "label": None,
+            "is_dangerous": False,
+            "is_new_wallet": False,
+            "funded_by_tornado": False,
+            "tx_count": -1,
+        }
+
     monkeypatch.setattr(settings, "openai_api_key", "")
     scorer = TransactionScorer()
     monkeypatch.setattr(scorer, "_get_wallet_reputation", fake_reputation)
+    monkeypatch.setattr("backend.services.scorer.get_address_label", fake_address_label)
 
     result = await scorer.score_transaction(
         {
@@ -255,8 +275,18 @@ async def test_behavioral_multiplier_caps_score_at_100(monkeypatch):
     async def fake_reputation(_address):
         return {"is_new": True, "has_no_ens": True}
 
+    async def fake_address_label(_address):
+        return {
+            "label": None,
+            "is_dangerous": False,
+            "is_new_wallet": False,
+            "funded_by_tornado": False,
+            "tx_count": -1,
+        }
+
     scorer = TransactionScorer()
     monkeypatch.setattr(scorer, "_get_wallet_reputation", fake_reputation)
+    monkeypatch.setattr("backend.services.scorer.get_address_label", fake_address_label)
 
     result = await scorer._apply_behavioral_multiplier(
         RiskScoreResponse(
@@ -278,7 +308,13 @@ async def test_behavioral_multiplier_adds_etherscan_danger_label(monkeypatch):
         return {"is_new": False, "has_no_ens": False}
 
     async def fake_address_label(_address):
-        return {"label": "Euler Finance Exploiter", "is_dangerous": True}
+        return {
+            "label": "unverified contract",
+            "is_dangerous": True,
+            "is_new_wallet": False,
+            "funded_by_tornado": False,
+            "tx_count": 4,
+        }
 
     scorer = TransactionScorer()
     monkeypatch.setattr(scorer, "_get_wallet_reputation", fake_reputation)
@@ -296,3 +332,35 @@ async def test_behavioral_multiplier_adds_etherscan_danger_label(monkeypatch):
 
     assert result.risk_score == 92
     assert result.risk_factors == ["PROBE_PATTERN", "ETHERSCAN_DANGER_LABEL"]
+
+
+@pytest.mark.asyncio
+async def test_behavioral_multiplier_adds_etherscan_new_wallet_and_tornado(monkeypatch):
+    async def fake_reputation(_address):
+        return {"is_new": False, "has_no_ens": False}
+
+    async def fake_address_label(_address):
+        return {
+            "label": "Tornado Cash funded, new wallet (2 txs)",
+            "is_dangerous": True,
+            "is_new_wallet": True,
+            "funded_by_tornado": True,
+            "tx_count": 2,
+        }
+
+    scorer = TransactionScorer()
+    monkeypatch.setattr(scorer, "_get_wallet_reputation", fake_reputation)
+    monkeypatch.setattr("backend.services.scorer.get_address_label", fake_address_label)
+
+    result = await scorer._apply_behavioral_multiplier(
+        RiskScoreResponse(
+            tx_hash="0xabc",
+            risk_score=40,
+            risk_summary="Low base score",
+            risk_factors=["NORMAL"],
+        ),
+        "0x1111111111111111111111111111111111111111",
+    )
+
+    assert result.risk_score == 90
+    assert result.risk_factors == ["NORMAL", "NEW_WALLET", "TORNADO_FUNDED"]

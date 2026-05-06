@@ -208,8 +208,9 @@ class TransactionScorer:
             return result
 
         reputation = await self._get_wallet_reputation(from_address)
+        etherscan_data = await get_address_label(from_address)
 
-        if reputation["is_new"]:
+        if reputation["is_new"] or etherscan_data["is_new_wallet"]:
             result.risk_score = min(result.risk_score + 10, 100)
             self._append_risk_factor(result, "NEW_WALLET")
 
@@ -217,7 +218,10 @@ class TransactionScorer:
             result.risk_score = min(result.risk_score + 5, 100)
             self._append_risk_factor(result, "NO_ENS_IDENTITY")
 
-        etherscan_data = await get_address_label(from_address)
+        if etherscan_data["funded_by_tornado"]:
+            result.risk_score = min(result.risk_score + 20, 100)
+            self._append_risk_factor(result, "TORNADO_FUNDED")
+
         if etherscan_data["is_dangerous"]:
             result.risk_score = min(result.risk_score + 20, 100)
             self._append_risk_factor(result, "ETHERSCAN_DANGER_LABEL")

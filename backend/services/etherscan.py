@@ -1,44 +1,88 @@
-import logging
-
 import httpx
 
 from backend.config import settings
 
-logger = logging.getLogger(__name__)
+ETHERSCAN_V2 = "https://api.etherscan.io/v2/api"
+CHAINID = "1"
+TORNADO_CASH = "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b"
 
-DANGER_LABELS = {"exploit", "tornado", "scammer", "phish", "hack", "heist", "sanctioned"}
+
+def _neutral_result(label: str | None = None, tx_count: int = -1) -> dict[str, bool | int | str | None]:
+    return {
+        "label": label,
+        "is_dangerous": False,
+        "is_new_wallet": False,
+        "funded_by_tornado": False,
+        "tx_count": tx_count,
+    }
 
 
-async def get_address_label(address: str) -> dict[str, bool | str | None]:
+async def get_address_label(address: str) -> dict[str, bool | int | str | None]:
     """
-    Checks Etherscan to see if an address has been labeled as malicious.
+    Derives risk signals from Etherscan V2 public API.
+    Returns label info and danger flag based on behavioral signals.
     """
     if not address or not settings.etherscan_api_key:
-        return {"label": None, "is_dangerous": False}
-
-    url = (
-        f"https://api.etherscan.io/api"
-        f"?module=contract"
-        f"&action=getsourcecode"
-        f"&address={address}"
-        f"&apikey={settings.etherscan_api_key}"
-    )
+        return _neutral_result()
 
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(url)
-            data = resp.json()
+            contract_resp = await client.get(
+                ETHERSCAN_V2,
+                params={
+                    "chainid": CHAINID,
+                    "module": "contract",
+                    "action": "getsourcecode",
+                    "address": address,
+                    "apikey": settings.etherscan_api_key,
+                },
+            )
+            contract_data = contract_resp.json()
+            contract_result = contract_data.get("result", [{}])[0]
+            contract_name = contract_result.get("ContractName", "") or ""
+            is_unverified_contract = (
+                contract_name == ""
+                and contract_result.get("ABI") == "Contract source code not verified"
+            )
 
-            # Etherscan often puts labels in the ContractName field for exploiters.
-            result = data.get("result", [{}])[0]
-            label = result.get("ContractName", "") or ""
+            tx_resp = await client.get(
+                ETHERSCAN_V2,
+                params={
+                    "chainid": CHAINID,
+                    "module": "account",
+                    "action": "txlist",
+                    "address": address,
+                    "page": "1",
+                    "offset": "10",
+                    "sort": "asc",
+                    "apikey": settings.etherscan_api_key,
+                },
+            )
+            tx_data = tx_resp.json()
+            txs = tx_data.get("result", [])
+            txs = txs if isinstance(txs, list) else []
+            tx_count = len(txs)
+            is_new_wallet = tx_count <= 3
+            funded_by_tornado = any(tx.get("from", "").lower() == TORNADO_CASH for tx in txs)
 
-            is_dangerous = any(word in label.lower() for word in DANGER_LABELS)
+        is_dangerous = funded_by_tornado or (is_unverified_contract and is_new_wallet)
 
-            if is_dangerous:
-                logger.info("ETHERSCAN DANGER DETECTED: %s is labeled '%s'", address, label)
+        label_parts = []
+        if funded_by_tornado:
+            label_parts.append("Tornado Cash funded")
+        if is_new_wallet:
+            label_parts.append(f"new wallet ({tx_count} txs)")
+        if is_unverified_contract:
+            label_parts.append("unverified contract")
+        if contract_name:
+            label_parts.append(contract_name)
 
-            return {"label": label, "is_dangerous": is_dangerous}
-    except Exception as exc:
-        logger.error("Etherscan label lookup failed: %s", exc)
-        return {"label": None, "is_dangerous": False}
+        return {
+            "label": ", ".join(label_parts) or "unknown",
+            "is_dangerous": is_dangerous,
+            "is_new_wallet": is_new_wallet,
+            "funded_by_tornado": funded_by_tornado,
+            "tx_count": tx_count,
+        }
+    except Exception:
+        return _neutral_result()
