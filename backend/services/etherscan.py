@@ -4,7 +4,13 @@ from backend.config import settings
 
 ETHERSCAN_V2 = "https://api.etherscan.io/v2/api"
 CHAINID = "1"
-TORNADO_CASH = "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b"
+TORNADO_CASH_ADDRESSES = {
+    "0x722122df12d4e14e13ac3b6895a86e84145b6967",
+    "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b",
+    "0x47ce0c6ed5b0ce3d3a51fdb1c52dc66a7c3c2936",
+    "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf",
+    "0xa160cdab225685da1d56aa342ad8841c3b53f291",
+}
 
 
 def _neutral_result(label: str | None = None, tx_count: int = -1) -> dict[str, bool | int | str | None]:
@@ -61,9 +67,22 @@ async def get_address_label(address: str) -> dict[str, bool | int | str | None]:
             tx_data = tx_resp.json()
             txs = tx_data.get("result", [])
             txs = txs if isinstance(txs, list) else []
-            tx_count = len(txs)
-            is_new_wallet = tx_count <= 3
-            funded_by_tornado = any(tx.get("from", "").lower() == TORNADO_CASH for tx in txs)
+            funded_by_tornado = any(tx.get("from", "").lower() in TORNADO_CASH_ADDRESSES for tx in txs)
+
+            txcount_resp = await client.get(
+                ETHERSCAN_V2,
+                params={
+                    "chainid": CHAINID,
+                    "module": "proxy",
+                    "action": "eth_getTransactionCount",
+                    "address": address,
+                    "tag": "latest",
+                    "apikey": settings.etherscan_api_key,
+                },
+            )
+            txcount_data = txcount_resp.json()
+            tx_count = int(txcount_data.get("result", "0x0"), 16)
+            is_new_wallet = tx_count <= 5
 
         is_dangerous = funded_by_tornado or (is_unverified_contract and is_new_wallet)
 

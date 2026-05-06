@@ -43,12 +43,18 @@ async def test_get_address_label_derives_v2_behavioral_signals(monkeypatch):
                 return FakeResponse(
                     {"result": [{"ContractName": "", "ABI": "Contract source code not verified"}]}
                 )
+            if params["module"] == "account":
+                return FakeResponse(
+                    {
+                        "result": [
+                            {"from": "0x47ce0c6ed5b0ce3d3a51fdb1c52dc66a7c3c2936"},
+                            {"from": "0x1111111111111111111111111111111111111111"},
+                        ]
+                    }
+                )
             return FakeResponse(
                 {
-                    "result": [
-                        {"from": "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b"},
-                        {"from": "0x1111111111111111111111111111111111111111"},
-                    ]
+                    "result": "0x5",
                 }
             )
 
@@ -56,9 +62,9 @@ async def test_get_address_label_derives_v2_behavioral_signals(monkeypatch):
     monkeypatch.setattr("backend.services.etherscan.httpx.AsyncClient", FakeClient)
 
     assert await get_address_label("0x1111111111111111111111111111111111111111") == {
-        "label": "Tornado Cash funded, new wallet (2 txs), unverified contract",
+        "label": "Tornado Cash funded, new wallet (5 txs), unverified contract",
         "is_dangerous": True,
         "is_new_wallet": True,
         "funded_by_tornado": True,
-        "tx_count": 2,
+        "tx_count": 5,
     }
