@@ -2,6 +2,7 @@ import pytest
 from openai.resources.chat.completions import AsyncCompletions
 
 from backend.config import settings
+from backend.models import RiskScoreResponse
 from backend.services.blacklist import BLACKLIST
 from backend.services.scorer import TransactionScorer
 
@@ -223,3 +224,49 @@ async def test_score_transaction_boosts_probe_pattern_to_alert_threshold(monkeyp
 
     assert result.risk_score == 85
     assert result.risk_factors == ["PROBE_PATTERN"]
+
+
+@pytest.mark.asyncio
+async def test_score_transaction_applies_wallet_reputation_multiplier(monkeypatch):
+    async def fake_reputation(_address):
+        return {"is_new": True, "has_no_ens": True}
+
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    scorer = TransactionScorer()
+    monkeypatch.setattr(scorer, "_get_wallet_reputation", fake_reputation)
+
+    result = await scorer.score_transaction(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x2222222222222222222222222222222222222222",
+            "input_data": "0x" + ("a" * 198),
+            "value_eth": 0,
+        },
+        {"name": "Probe Test"},
+    )
+
+    assert result.risk_score == 87
+    assert result.risk_factors == ["PROBE_PATTERN", "NEW_WALLET", "NO_ENS_IDENTITY"]
+
+
+@pytest.mark.asyncio
+async def test_behavioral_multiplier_caps_score_at_100(monkeypatch):
+    async def fake_reputation(_address):
+        return {"is_new": True, "has_no_ens": True}
+
+    scorer = TransactionScorer()
+    monkeypatch.setattr(scorer, "_get_wallet_reputation", fake_reputation)
+
+    result = await scorer._apply_behavioral_multiplier(
+        RiskScoreResponse(
+            tx_hash="0xabc",
+            risk_score=98,
+            risk_summary="High-risk: Known malicious entity.",
+            risk_factors=["BLACKLISTED_ADDRESS"],
+        ),
+        "0x1111111111111111111111111111111111111111",
+    )
+
+    assert result.risk_score == 100
+    assert result.risk_factors == ["BLACKLISTED_ADDRESS", "NEW_WALLET", "NO_ENS_IDENTITY"]

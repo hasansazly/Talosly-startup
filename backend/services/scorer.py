@@ -146,6 +146,10 @@ class TransactionScorer:
         # Pre-screen before calling OpenAI, and before checking OpenAI config.
         pre_result = self.pre_screen(transaction)
         if pre_result is not None:
+            pre_result = await self._apply_behavioral_multiplier(
+                pre_result,
+                transaction.get("from_address") or transaction.get("from"),
+            )
             return self._apply_score_overrides(pre_result)
 
         if not self.client:
@@ -171,6 +175,10 @@ class TransactionScorer:
                 content = message.choices[0].message.content or ""
                 parsed = self._parse_response(content)
                 result = RiskScoreResponse(tx_hash=transaction["tx_hash"], **parsed)
+                result = await self._apply_behavioral_multiplier(
+                    result,
+                    transaction.get("from_address") or transaction.get("from"),
+                )
                 return self._apply_score_overrides(result)
             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
                 if attempt == 1:
@@ -190,8 +198,28 @@ class TransactionScorer:
 
     def _apply_score_overrides(self, result: RiskScoreResponse) -> RiskScoreResponse:
         if result.risk_score >= 70 and "PROBE_PATTERN" in result.risk_factors:
-            result.risk_score = 85
+            result.risk_score = max(result.risk_score, 85)
         return result
+
+    async def _apply_behavioral_multiplier(self, result: RiskScoreResponse, from_address: str | None) -> RiskScoreResponse:
+        if not from_address:
+            return result
+
+        reputation = await self._get_wallet_reputation(from_address)
+
+        if reputation["is_new"]:
+            result.risk_score = min(result.risk_score + 10, 100)
+            self._append_risk_factor(result, "NEW_WALLET")
+
+        if reputation["has_no_ens"]:
+            result.risk_score = min(result.risk_score + 5, 100)
+            self._append_risk_factor(result, "NO_ENS_IDENTITY")
+
+        return result
+
+    def _append_risk_factor(self, result: RiskScoreResponse, factor: str) -> None:
+        if factor not in result.risk_factors and len(result.risk_factors) < 3:
+            result.risk_factors.append(factor)
 
     def _build_prompt(self, transaction: dict[str, Any], protocol: dict[str, Any]) -> str:
         return f"""Analyze this Ethereum transaction for the protocol: {protocol.get('name')} ({protocol.get('address')})
