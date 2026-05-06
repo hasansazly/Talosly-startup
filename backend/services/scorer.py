@@ -217,8 +217,8 @@ class TransactionScorer:
             result.risk_score = min(result.risk_score + 5, 100)
             self._append_risk_factor(result, "NO_ENS_IDENTITY")
 
-        etherscan = await get_address_label(from_address)
-        if etherscan["is_dangerous"]:
+        etherscan_data = await get_address_label(from_address)
+        if etherscan_data["is_dangerous"]:
             result.risk_score = min(result.risk_score + 20, 100)
             self._append_risk_factor(result, "ETHERSCAN_DANGER_LABEL")
 
