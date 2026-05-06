@@ -86,6 +86,23 @@ def test_pre_screen_flags_blacklisted_address():
     assert result.risk_factors == ["BLACKLISTED_ADDRESS"]
 
 
+def test_pre_screen_flags_expanded_blacklist_with_mixed_case_input():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x098B716B8AAF21512996DC57EB0615E2383E2F96",
+            "to_address": "0x0000000000000000000000000000000000000000",
+            "input_data": "0x",
+            "value_eth": 0,
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score == 98
+    assert result.risk_factors == ["BLACKLISTED_ADDRESS"]
+
+
 @pytest.mark.asyncio
 async def test_score_transaction_runs_pre_screen_without_openai_key(monkeypatch):
     monkeypatch.setattr(settings, "openai_api_key", "")
