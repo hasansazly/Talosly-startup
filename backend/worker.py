@@ -77,6 +77,17 @@ class TaloslyWorker:
         raw_txs = await self.rpc.get_transactions_for_address(address, from_block, to_block)
         transactions_found = 0
         alerts_fired = 0
+        pre_screened_in_this_loop = 0
+        openai_calls_in_this_loop = 0
+        pre_screen_factors = {
+            "BLACKLISTED_ADDRESS",
+            "KNOWN_EXPLOIT_CONTRACT",
+            "KNOWN_EXPLOIT_TARGET",
+            "LARGE_VALUE_TRANSACTION",
+            "LARGE_INPUT_DATA",
+            "PROBE_PATTERN",
+            "SELF_TRANSFER",
+        }
         for raw_tx in raw_txs:
             parsed = self.rpc.parse_transaction(raw_tx)
             tx_id, is_new = await db.upsert_transaction(protocol["id"], parsed)
@@ -85,6 +96,10 @@ class TaloslyWorker:
             transactions_found += 1
             logger.info("transaction.fetched", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], block_number=parsed.get("block_number"))
             score_result = await self.scorer.score_transaction(parsed, protocol)
+            if pre_screen_factors.intersection(score_result.risk_factors):
+                pre_screened_in_this_loop += 1
+            else:
+                openai_calls_in_this_loop += 1
             await db.update_transaction_score(tx_id, score_result.risk_score, score_result.risk_summary, score_result.risk_factors)
             logger.info("transaction.scored", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], risk_score=score_result.risk_score)
             if score_result.risk_score >= settings.risk_alert_threshold:
@@ -103,12 +118,11 @@ class TaloslyWorker:
         # Track scoring metrics
         if transactions_found > 0:
             avg_score = await db.get_avg_score_today(protocol["id"])
-            pre_screened = await db.get_pre_screened_count_today(protocol["id"])
             await db.upsert_scoring_metrics(
                 date=datetime.date.today(),
                 total_scored=transactions_found,
-                pre_screened=pre_screened,
-                openai_scored=transactions_found - pre_screened,
+                pre_screened=pre_screened_in_this_loop,
+                openai_scored=openai_calls_in_this_loop,
                 alerts_fired=alerts_fired,
                 avg_score=avg_score or 0.0,
             )
