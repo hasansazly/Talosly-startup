@@ -64,6 +64,8 @@ for target in (
 # ---------------------------------------------------------------------------
 try:
     from backend.services.scorer import TransactionScorer
+    from backend.services.blacklist import BLACKLIST
+    from backend.services.scorer import norm
 except ImportError as exc:
     print(f"\n[ERROR] Could not import TransactionScorer: {exc}")
     print("  Make sure you're running from the repo root, e.g.:")
@@ -78,6 +80,7 @@ class BacktestCase:
     tx_data: dict[str, Any]
     protocol: dict[str, Any]
     pass_threshold: int = 80
+    verify_behavior_without_blacklist: bool = False
 
 
 HISTORICAL_HACKS: list[BacktestCase] = [
@@ -124,6 +127,7 @@ HISTORICAL_HACKS: list[BacktestCase] = [
             "input_data": "0x",
         },
         pass_threshold=80,
+        verify_behavior_without_blacklist=True,
     ),
 ]
 
@@ -140,6 +144,12 @@ async def run_backtest(case: BacktestCase, scorer: TransactionScorer) -> bool:
     print(f"{BOLD}{case.name}{RESET}")
     print(f"    {case.description}")
     print(sep)
+
+    matched = _blacklist_matches(case.tx_data)
+    if matched:
+        print("\n  Blacklist Match:")
+        for field, address in matched:
+            print(f"    - {field}: {address}")
 
     try:
         result = await scorer.score_transaction(case.tx_data, case.protocol)
@@ -171,7 +181,49 @@ async def run_backtest(case: BacktestCase, scorer: TransactionScorer) -> bool:
         print(f"\n  {FAIL} Score {risk_score} < {case.pass_threshold}")
         print(f"  {WARN} System would have missed this hack. Refine heuristics.")
 
+    if case.verify_behavior_without_blacklist:
+        await run_behavior_probe(case, scorer)
+
     return caught
+
+
+def _blacklist_matches(tx_data: dict[str, Any]) -> list[tuple[str, str]]:
+    matches = []
+    for field in ("from_address", "from", "to_address", "to"):
+        address = norm(tx_data.get(field))
+        if address in BLACKLIST:
+            matches.append((field, address))
+    return matches
+
+
+async def run_behavior_probe(case: BacktestCase, scorer: TransactionScorer) -> bool:
+    matched_addresses = {address for _, address in _blacklist_matches(case.tx_data)}
+    if not matched_addresses:
+        return True
+
+    print(f"\n  Behavior Probe: temporarily ignoring {len(matched_addresses)} blacklist address(es)")
+    original = set(BLACKLIST)
+    try:
+        BLACKLIST.difference_update(matched_addresses)
+        result = await scorer.score_transaction(case.tx_data, case.protocol)
+    finally:
+        BLACKLIST.clear()
+        BLACKLIST.update(original)
+
+    if isinstance(result, dict):
+        risk_score = result.get("risk_score", result.get("score", 0))
+        risk_factors = result.get("risk_factors", result.get("factors", []))
+    else:
+        risk_score = getattr(result, "risk_score", getattr(result, "score", 0))
+        risk_factors = getattr(result, "risk_factors", getattr(result, "factors", []))
+
+    if risk_score >= case.pass_threshold:
+        print(f"  {PASS} Behavior-only score {risk_score} >= {case.pass_threshold}")
+        return True
+
+    print(f"  {WARN} Behavior-only score {risk_score} < {case.pass_threshold}")
+    print(f"  {'Risk Factors':15s}: {risk_factors or 'none'}")
+    return False
 
 
 async def main() -> None:

@@ -103,6 +103,23 @@ def test_pre_screen_flags_expanded_blacklist_with_mixed_case_input():
     assert result.risk_factors == ["BLACKLISTED_ADDRESS"]
 
 
+def test_pre_screen_flags_known_exploit_target_contract():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x0000000000000000000000000000000000000000",
+            "to_address": "0x27182842E098f60e3D576794A5bFFb0777E025d3",
+            "input_data": "0x",
+            "value_eth": 0,
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score == 82
+    assert result.risk_factors == ["KNOWN_EXPLOIT_TARGET"]
+
+
 @pytest.mark.asyncio
 async def test_score_transaction_runs_pre_screen_without_openai_key(monkeypatch):
     monkeypatch.setattr(settings, "openai_api_key", "")

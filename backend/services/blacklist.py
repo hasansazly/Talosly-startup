@@ -23,3 +23,9 @@ BLACKLIST = {
     # ResupplyFi (June 2025)
     "0x6d9f6e900ac2ce6770fd9f04f98b7b0fc355e2ea",
 }
+
+
+EXPLOIT_TARGETS = {
+    # Euler Finance eDAI contract targeted in the Mar 2023 exploit path.
+    "0x27182842e098f60e3d576794a5bffb0777e025d3",
+}

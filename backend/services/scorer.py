@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from backend.config import settings
 from backend.models import RiskScoreResponse
-from .blacklist import BLACKLIST
+from .blacklist import BLACKLIST, EXPLOIT_TARGETS
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,14 @@ class TransactionScorer:
                 risk_score=98,
                 risk_summary="High-risk: Known malicious entity.",
                 risk_factors=["BLACKLISTED_ADDRESS"],
+            )
+
+        if to_address in EXPLOIT_TARGETS:
+            return RiskScoreResponse(
+                tx_hash=tx_hash,
+                risk_score=82,
+                risk_summary="Known exploit target contract interaction",
+                risk_factors=["KNOWN_EXPLOIT_TARGET"],
             )
 
         if norm(from_address) == norm(to_address) and from_address is not None:
