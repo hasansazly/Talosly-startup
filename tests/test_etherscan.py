@@ -47,7 +47,7 @@ async def test_get_address_label_derives_v2_behavioral_signals(monkeypatch):
                 return FakeResponse(
                     {
                         "result": [
-                            {"from": "0x47ce0c6ed5b0ce3d3a51fdb1c52dc66a7c3c2936"},
+                            {"from": "0xc2dfdfe7d39da9e51ad332e426bc7a07aa423ba0"},
                             {"from": "0x1111111111111111111111111111111111111111"},
                         ]
                     }
