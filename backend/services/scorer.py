@@ -146,6 +146,7 @@ class TransactionScorer:
         # Pre-screen before calling OpenAI, and before checking OpenAI config.
         pre_result = self.pre_screen(transaction)
         if pre_result is not None:
+            # Pre-screen hits still pass through behavioral multipliers before final return.
             pre_result = await self._apply_behavioral_multiplier(
                 pre_result,
                 transaction.get("from_address") or transaction.get("from"),
