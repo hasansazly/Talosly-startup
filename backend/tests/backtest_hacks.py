@@ -105,6 +105,26 @@ HISTORICAL_HACKS: list[BacktestCase] = [
             ),
         },
     ),
+    BacktestCase(
+        name="Euler Finance - Flash Loan Attack (March 2023)",
+        description=(
+            "Attacker used a flash loan from Aave to exploit a flaw in Euler's "
+            "donateToReserves function, bypassing solvency checks and draining "
+            "$197M in DAI, USDC, WETH, and stETH."
+        ),
+        protocol={
+            "name": "Euler Finance",
+            "address": "0x27182842E098f60e3D576794A5bFFb0777E025d3",
+        },
+        tx_data={
+            "tx_hash": "0xEULER_FLASH_LOAN_ATTACK_SIMULATION_2023",
+            "from_address": "0xb66cd966670d962c227b3eaba30a872dbfb995db",
+            "to_address": "0x27182842E098f60e3D576794A5bFFb0777E025d3",
+            "value_eth": 0,
+            "input_data": "0x",
+        },
+        pass_threshold=80,
+    ),
 ]
 
 PASS = "\033[92mPASS\033[0m"
