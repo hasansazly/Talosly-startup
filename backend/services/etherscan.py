@@ -49,10 +49,6 @@ async def get_address_label(address: str) -> dict[str, bool | int | str | None]:
             )
             contract_result = contract_resp.json().get("result", [{}])[0]
             contract_name = contract_result.get("ContractName", "") or ""
-            is_unverified_contract = (
-                contract_name == ""
-                and contract_result.get("ABI") == "Contract source code not verified"
-            )
 
             txcount_resp = await client.get(
                 ETHERSCAN_V2,
@@ -68,6 +64,25 @@ async def get_address_label(address: str) -> dict[str, bool | int | str | None]:
             txcount_hex = txcount_resp.json().get("result", "0x0") or "0x0"
             real_tx_count = int(txcount_hex, 16)
             is_new_wallet = real_tx_count <= 5
+
+            code_resp = await client.get(
+                ETHERSCAN_V2,
+                params={
+                    "chainid": CHAINID,
+                    "module": "proxy",
+                    "action": "eth_getCode",
+                    "address": address,
+                    "tag": "latest",
+                    "apikey": settings.etherscan_api_key,
+                },
+            )
+            code = (code_resp.json().get("result", "0x") or "0x").lower()
+            is_contract = code not in {"0x", "0x0"}
+            is_unverified_contract = (
+                is_contract
+                and contract_name == ""
+                and contract_result.get("ABI") == "Contract source code not verified"
+            )
 
             tx_resp = await client.get(
                 ETHERSCAN_V2,
@@ -105,5 +120,6 @@ async def get_address_label(address: str) -> dict[str, bool | int | str | None]:
             "funded_by_tornado": funded_by_tornado,
             "tx_count": real_tx_count,
         }
-    except Exception:
+    except Exception as exc:
+        print(f"get_address_label EXCEPTION for {address}: {type(exc).__name__}: {exc}")
         return _neutral_result()
