@@ -171,3 +171,22 @@ def test_pre_screen_flags_zero_value_payload_probe_with_rpc_field_names():
     assert result.risk_score == 72
     assert result.risk_summary == "Zero value with large payload"
     assert result.risk_factors == ["PROBE_PATTERN"]
+
+
+@pytest.mark.asyncio
+async def test_score_transaction_boosts_probe_pattern_to_alert_threshold(monkeypatch):
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    scorer = TransactionScorer()
+    result = await scorer.score_transaction(
+        {
+            "tx_hash": "0xabc",
+            "from": "0x1111111111111111111111111111111111111111",
+            "to": "0x2222222222222222222222222222222222222222",
+            "input": "0x" + ("a" * 198),
+            "value": "0x0",
+        },
+        {"name": "Probe Test"},
+    )
+
+    assert result.risk_score == 85
+    assert result.risk_factors == ["PROBE_PATTERN"]

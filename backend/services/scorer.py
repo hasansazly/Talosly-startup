@@ -125,7 +125,7 @@ class TransactionScorer:
         # Pre-screen before calling OpenAI, and before checking OpenAI config.
         pre_result = self.pre_screen(transaction)
         if pre_result is not None:
-            return pre_result
+            return self._apply_score_overrides(pre_result)
 
         if not self.client:
             return RiskScoreResponse(
@@ -149,7 +149,8 @@ class TransactionScorer:
                 )
                 content = message.choices[0].message.content or ""
                 parsed = self._parse_response(content)
-                return RiskScoreResponse(tx_hash=transaction["tx_hash"], **parsed)
+                result = RiskScoreResponse(tx_hash=transaction["tx_hash"], **parsed)
+                return self._apply_score_overrides(result)
             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
                 if attempt == 1:
                     logger.warning("Talosly scoring parse failed: %s", exc)
@@ -165,6 +166,11 @@ class TransactionScorer:
             risk_summary="Scoring unavailable",
             risk_factors=["OpenAI scoring failed"],
         )
+
+    def _apply_score_overrides(self, result: RiskScoreResponse) -> RiskScoreResponse:
+        if result.risk_score >= 70 and "PROBE_PATTERN" in result.risk_factors:
+            result.risk_score = 85
+        return result
 
     def _build_prompt(self, transaction: dict[str, Any], protocol: dict[str, Any]) -> str:
         return f"""Analyze this Ethereum transaction for the protocol: {protocol.get('name')} ({protocol.get('address')})
