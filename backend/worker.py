@@ -77,8 +77,8 @@ class TaloslyWorker:
         raw_txs = await self.rpc.get_transactions_for_address(address, from_block, to_block)
         transactions_found = 0
         alerts_fired = 0
-        pre_screened_in_this_loop = 0
-        openai_calls_in_this_loop = 0
+        pre_screened_in_loop = 0
+        openai_calls_in_loop = 0
         pre_screen_factors = {
             "BLACKLISTED_ADDRESS",
             "KNOWN_EXPLOIT_CONTRACT",
@@ -97,9 +97,9 @@ class TaloslyWorker:
             logger.info("transaction.fetched", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], block_number=parsed.get("block_number"))
             score_result = await self.scorer.score_transaction(parsed, protocol)
             if pre_screen_factors.intersection(score_result.risk_factors):
-                pre_screened_in_this_loop += 1
+                pre_screened_in_loop += 1
             else:
-                openai_calls_in_this_loop += 1
+                openai_calls_in_loop += 1
             await db.update_transaction_score(tx_id, score_result.risk_score, score_result.risk_summary, score_result.risk_factors)
             logger.info("transaction.scored", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], risk_score=score_result.risk_score)
             if score_result.risk_score >= settings.risk_alert_threshold:
@@ -121,8 +121,8 @@ class TaloslyWorker:
             await db.upsert_scoring_metrics(
                 date=datetime.date.today(),
                 total_scored=transactions_found,
-                pre_screened=pre_screened_in_this_loop,
-                openai_scored=openai_calls_in_this_loop,
+                pre_screened=pre_screened_in_loop,
+                openai_scored=openai_calls_in_loop,
                 alerts_fired=alerts_fired,
                 avg_score=avg_score or 0.0,
             )
