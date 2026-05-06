@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from inspect import isawaitable
 from typing import Any
 
 from openai import AsyncOpenAI, OpenAIError
@@ -67,6 +68,26 @@ class TransactionScorer:
 
     def __init__(self) -> None:
         self.client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
+
+    async def _get_wallet_reputation(self, address: str) -> dict[str, bool]:
+        """Checks wallet age and ENS reputation when a Web3 provider is attached."""
+        w3 = getattr(self, "w3", None)
+        if w3 is None:
+            return {"is_new": False, "has_no_ens": False}
+
+        tx_count_result = w3.eth.get_transaction_count(address)
+        tx_count = await tx_count_result if isawaitable(tx_count_result) else tx_count_result
+
+        ens_name = None
+        ens = getattr(w3, "ens", None)
+        if ens is not None:
+            ens_result = ens.name(address)
+            ens_name = await ens_result if isawaitable(ens_result) else ens_result
+
+        return {
+            "is_new": tx_count < 5,
+            "has_no_ens": ens_name is None,
+        }
 
     def pre_screen(self, transaction: dict[str, Any]) -> RiskScoreResponse | None:
         tx_hash = transaction["tx_hash"]

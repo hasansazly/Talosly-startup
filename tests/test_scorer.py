@@ -70,6 +70,39 @@ def test_out_of_range_score_raises_validation_error():
         scorer._parse_response('{"risk_score": 150, "risk_summary": "Bad", "risk_factors": []}')
 
 
+@pytest.mark.asyncio
+async def test_wallet_reputation_returns_neutral_without_web3_provider():
+    scorer = TransactionScorer()
+
+    assert await scorer._get_wallet_reputation("0x1111111111111111111111111111111111111111") == {
+        "is_new": False,
+        "has_no_ens": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_wallet_reputation_uses_attached_async_web3_provider():
+    class FakeEth:
+        async def get_transaction_count(self, _address):
+            return 3
+
+    class FakeEns:
+        async def name(self, _address):
+            return None
+
+    class FakeW3:
+        eth = FakeEth()
+        ens = FakeEns()
+
+    scorer = TransactionScorer()
+    scorer.w3 = FakeW3()
+
+    assert await scorer._get_wallet_reputation("0x1111111111111111111111111111111111111111") == {
+        "is_new": True,
+        "has_no_ens": True,
+    }
+
+
 def test_pre_screen_flags_blacklisted_address():
     scorer = TransactionScorer()
     result = scorer.pre_screen(
