@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # ---------------------------------------------------------------------------
 os.environ.setdefault("BACKTEST_MODE", "1")
 os.environ["OPENAI_API_KEY"] = ""
+os.environ["ETHERSCAN_API_KEY"] = ""
 os.environ["TELEGRAM_BOT_TOKEN"] = "DISABLED"
 os.environ["TELEGRAM_CHAT_ID"] = "DISABLED"
 

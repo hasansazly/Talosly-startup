@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     alchemy_api_key: str = ""
+    etherscan_api_key: str = ""
     ethereum_rpc_url: str = "https://cloudflare-eth.com"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
@@ -11,6 +12,7 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
     database_url: str = "postgresql://talosly:talosly_secret@localhost:5432/talosly"
     database_public_url: str = ""
+    postgres_password: str = ""
     poll_interval_seconds: int = 15
     risk_alert_threshold: int = 70
     backend_port: int = 8000

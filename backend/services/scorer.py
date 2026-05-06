@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from backend.config import settings
 from backend.models import RiskScoreResponse
+from backend.services.etherscan import get_address_label
 from .blacklist import BLACKLIST, EXPLOIT_TARGETS
 
 logger = logging.getLogger(__name__)
@@ -215,6 +216,11 @@ class TransactionScorer:
         if reputation["has_no_ens"]:
             result.risk_score = min(result.risk_score + 5, 100)
             self._append_risk_factor(result, "NO_ENS_IDENTITY")
+
+        etherscan = await get_address_label(from_address)
+        if etherscan["is_dangerous"]:
+            result.risk_score = min(result.risk_score + 20, 100)
+            self._append_risk_factor(result, "ETHERSCAN_DANGER_LABEL")
 
         return result
 

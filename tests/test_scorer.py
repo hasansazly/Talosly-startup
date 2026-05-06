@@ -270,3 +270,29 @@ async def test_behavioral_multiplier_caps_score_at_100(monkeypatch):
 
     assert result.risk_score == 100
     assert result.risk_factors == ["BLACKLISTED_ADDRESS", "NEW_WALLET", "NO_ENS_IDENTITY"]
+
+
+@pytest.mark.asyncio
+async def test_behavioral_multiplier_adds_etherscan_danger_label(monkeypatch):
+    async def fake_reputation(_address):
+        return {"is_new": False, "has_no_ens": False}
+
+    async def fake_address_label(_address):
+        return {"label": "Euler Finance Exploiter", "is_dangerous": True}
+
+    scorer = TransactionScorer()
+    monkeypatch.setattr(scorer, "_get_wallet_reputation", fake_reputation)
+    monkeypatch.setattr("backend.services.scorer.get_address_label", fake_address_label)
+
+    result = await scorer._apply_behavioral_multiplier(
+        RiskScoreResponse(
+            tx_hash="0xabc",
+            risk_score=72,
+            risk_summary="Zero value with large payload",
+            risk_factors=["PROBE_PATTERN"],
+        ),
+        "0x1111111111111111111111111111111111111111",
+    )
+
+    assert result.risk_score == 92
+    assert result.risk_factors == ["PROBE_PATTERN", "ETHERSCAN_DANGER_LABEL"]
