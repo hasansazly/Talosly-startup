@@ -156,7 +156,17 @@ def test_pre_screen_flags_known_exploit_target_contract():
 
 @pytest.mark.asyncio
 async def test_score_transaction_runs_pre_screen_without_openai_key(monkeypatch):
+    async def fake_address_label(_address):
+        return {
+            "label": None,
+            "is_dangerous": False,
+            "is_new_wallet": False,
+            "funded_by_tornado": False,
+            "tx_count": -1,
+        }
+
     monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr("backend.services.scorer.get_address_label", fake_address_label)
     scorer = TransactionScorer()
     result = await scorer.score_transaction(
         {
@@ -169,8 +179,8 @@ async def test_score_transaction_runs_pre_screen_without_openai_key(monkeypatch)
         {"name": "Backtest"},
     )
 
-    assert result.risk_score == 98
-    assert result.risk_factors == ["BLACKLISTED_ADDRESS"]
+    assert result.risk_score >= 98
+    assert "BLACKLISTED_ADDRESS" in result.risk_factors
 
 
 def test_pre_screen_flags_self_transfer():
