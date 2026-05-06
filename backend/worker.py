@@ -79,15 +79,6 @@ class TaloslyWorker:
         alerts_fired = 0
         pre_screened_this_loop = 0
         openai_scored_this_loop = 0
-        pre_screen_factors = {
-            "BLACKLISTED_ADDRESS",
-            "KNOWN_EXPLOIT_CONTRACT",
-            "KNOWN_EXPLOIT_TARGET",
-            "LARGE_VALUE_TRANSACTION",
-            "LARGE_INPUT_DATA",
-            "PROBE_PATTERN",
-            "SELF_TRANSFER",
-        }
         for raw_tx in raw_txs:
             parsed = self.rpc.parse_transaction(raw_tx)
             tx_id, is_new = await db.upsert_transaction(protocol["id"], parsed)
@@ -96,7 +87,7 @@ class TaloslyWorker:
             transactions_found += 1
             logger.info("transaction.fetched", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], block_number=parsed.get("block_number"))
             score_result = await self.scorer.score_transaction(parsed, protocol)
-            if pre_screen_factors.intersection(score_result.risk_factors):
+            if score_result.risk_factors:
                 pre_screened_this_loop += 1
             else:
                 openai_scored_this_loop += 1
