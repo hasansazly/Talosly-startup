@@ -138,9 +138,9 @@ export default function Admin() {
       )}
       <section className="panel table-panel">
         <h2>Waitlist Queue</h2>
-        <div className="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Project</th><th>Twitter</th><th>Status</th><th>Actions</th></tr></thead>
+        <div className="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Project</th><th>Twitter</th><th>Goal</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>{waitlist.items.map((item) => (
-            <tr key={item.id}><td>{item.name}</td><td>{item.email}</td><td>{item.project}</td><td>{item.twitter}</td><td>{item.status}</td><td>
+            <tr key={item.id}><td>{item.name}</td><td>{item.email}</td><td>{item.project}</td><td>{item.twitter}</td><td>{item.goal}</td><td>{item.status}</td><td>
               {item.status === 'pending' && <><button onClick={() => approve(item.id)}>Approve</button> <button onClick={async () => {
                 try {
                   setError('');

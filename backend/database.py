@@ -127,11 +127,18 @@ async def _create_tables() -> None:
                 name TEXT,
                 project TEXT,
                 twitter TEXT,
+                goal TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 api_key_id INTEGER REFERENCES api_keys(id),
                 applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 reviewed_at TIMESTAMPTZ
             )
+            """
+        )
+        await conn.execute(
+            """
+            ALTER TABLE waitlist
+            ADD COLUMN IF NOT EXISTS goal TEXT
             """
         )
         await conn.execute(
@@ -400,14 +407,15 @@ async def revoke_api_key(api_key_id: int) -> bool:
     return status.endswith("1")
 
 
-async def insert_waitlist(email: str, name: str | None, project: str | None, twitter: str | None) -> int:
+async def insert_waitlist(email: str, name: str | None, project: str | None, twitter: str | None, goal: str | None = None) -> int:
     pool = await get_pool()
     return await pool.fetchval(
-        "INSERT INTO waitlist (email, name, project, twitter) VALUES ($1, $2, $3, $4) RETURNING id",
+        "INSERT INTO waitlist (email, name, project, twitter, goal) VALUES ($1, $2, $3, $4, $5) RETURNING id",
         email,
         name,
         project,
         twitter,
+        goal,
     )
 
 

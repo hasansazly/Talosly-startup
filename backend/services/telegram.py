@@ -13,6 +13,33 @@ logger = logging.getLogger(__name__)
 class TelegramService:
     """Talosly Telegram notification service."""
 
+    async def send_message(self, text: str, chat_id: str | None = None) -> bool:
+        target_chat_id = chat_id or settings.telegram_chat_id
+        if not settings.telegram_bot_token or not target_chat_id:
+            logger.info("Talosly Telegram credentials are not configured")
+            return False
+        url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(
+                    url,
+                    json={
+                        "chat_id": target_chat_id,
+                        "text": text,
+                        "disable_web_page_preview": True,
+                    },
+                )
+                if response.is_success:
+                    return True
+                self._log_send_failure("plain", response)
+                return False
+        except httpx.HTTPError as exc:
+            logger.warning("Talosly Telegram request failed: %s", exc.__class__.__name__)
+            return False
+        except Exception as exc:
+            logger.warning("Talosly Telegram send failed: %s", exc.__class__.__name__)
+            return False
+
     async def send_alert(self, protocol: dict[str, Any], transaction: dict[str, Any], score_result: Any) -> bool:
         if not settings.telegram_bot_token or not settings.telegram_chat_id:
             logger.info("Talosly Telegram credentials are not configured")

@@ -78,6 +78,7 @@ class WaitlistResponse(BaseModel):
     name: Optional[str]
     project: Optional[str]
     twitter: Optional[str]
+    goal: Optional[str]
     status: str
     api_key_id: Optional[int]
     applied_at: str

@@ -11,9 +11,11 @@ from backend.config import settings
 from backend.middleware.auth import verify_admin_secret
 from backend.models import WaitlistApply
 from backend.services.logger import logger
+from backend.services.telegram import TelegramService
 
 router = APIRouter()
 admin_router = APIRouter(dependencies=[Depends(verify_admin_secret)])
+telegram = TelegramService()
 
 
 async def _send_email(to_email: str, subject: str, text: str) -> None:
@@ -37,10 +39,20 @@ async def apply_waitlist(payload: WaitlistApply):
     if await db.get_waitlist_by_email(payload.email):
         raise HTTPException(status_code=409, detail="You're already on the list. We'll be in touch.")
     try:
-        waitlist_id = await db.insert_waitlist(payload.email, payload.name, payload.project, payload.twitter)
+        waitlist_id = await db.insert_waitlist(payload.email, payload.name, payload.project, payload.twitter, payload.goal)
     except asyncpg.UniqueViolationError:
         raise HTTPException(status_code=409, detail="You're already on the list. We'll be in touch.") from None
     logger.info("waitlist.applied", email_domain=payload.email.split("@")[-1], project=payload.project)
+    await telegram.send_message(
+        text=(
+            "New waitlist application\n"
+            f"Name: {payload.name or '-'}\n"
+            f"Project: {payload.project or '-'}\n"
+            f"Email: {payload.email}\n"
+            f"Twitter: {payload.twitter or '-'}\n"
+            f"Goal: {payload.goal or '-'}"
+        )
+    )
     await _send_email(
         payload.email,
         "Talosly Beta — Application Received",
@@ -78,8 +90,24 @@ async def approve_waitlist(waitlist_id: int):
     logger.info("waitlist.approved", waitlist_id=waitlist_id, key_prefix=raw_key[:9])
     await _send_email(
         waitlist["email"],
-        "Talosly Beta — You're In",
-        f"Hi {waitlist.get('name') or 'there'},\n\nYour Talosly beta access is approved.\n\nYour API key (save this — shown once):\n{raw_key}\n\nRate limits during beta: {settings.rate_limit_per_minute} req/min, {settings.rate_limit_per_day} req/day\n\n— The Talosly Team",
+        "Welcome to Talosly — Your API Key",
+        f"""Hi {waitlist.get('name') or 'there'},
+
+You're approved for Talosly beta.
+
+Your API key: {raw_key}
+Dashboard: {settings.public_url}
+Docs: {settings.public_url}/docs
+
+Add your first protocol:
+POST {settings.public_url}/api/protocols
+Authorization: Bearer {raw_key}
+
+Rate limits during beta: {settings.rate_limit_per_minute} req/min, {settings.rate_limit_per_day} req/day
+
+Welcome aboard.
+— Talosly
+""",
     )
     return {"api_key": raw_key, "message": "One-time display. Save this key."}
 
