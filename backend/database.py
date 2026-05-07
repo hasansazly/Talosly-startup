@@ -131,6 +131,7 @@ async def _create_tables() -> None:
                 status TEXT NOT NULL DEFAULT 'pending',
                 api_key_id INTEGER REFERENCES api_keys(id),
                 applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                approved_at TIMESTAMPTZ,
                 reviewed_at TIMESTAMPTZ
             )
             """
@@ -139,6 +140,12 @@ async def _create_tables() -> None:
             """
             ALTER TABLE waitlist
             ADD COLUMN IF NOT EXISTS goal TEXT
+            """
+        )
+        await conn.execute(
+            """
+            ALTER TABLE waitlist
+            ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ
             """
         )
         await conn.execute(
@@ -436,7 +443,10 @@ async def set_waitlist_status(waitlist_id: int, status: str, api_key_id: int | N
         await pool.fetchrow(
             """
             UPDATE waitlist
-            SET status = $1, api_key_id = COALESCE($2, api_key_id), reviewed_at = NOW()
+            SET status = $1,
+                api_key_id = COALESCE($2, api_key_id),
+                reviewed_at = NOW(),
+                approved_at = CASE WHEN $1 = 'approved' THEN NOW() ELSE approved_at END
             WHERE id = $3
             RETURNING *
             """,

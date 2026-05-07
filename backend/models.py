@@ -82,4 +82,5 @@ class WaitlistResponse(BaseModel):
     status: str
     api_key_id: Optional[int]
     applied_at: str
+    approved_at: Optional[str]
     reviewed_at: Optional[str]
