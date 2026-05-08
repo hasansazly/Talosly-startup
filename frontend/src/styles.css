@@ -43,6 +43,15 @@ body::before {
   pointer-events: none;
   z-index: 0;
 }
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
 #root {
   position: relative;
   z-index: 1;
@@ -133,8 +142,13 @@ input::placeholder, textarea::placeholder {
   border-radius: 4px;
 }
 .topbar {
-  background: rgba(8,12,18,0.9);
-  backdrop-filter: blur(12px);
+  background: rgba(8,12,18,0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(56,189,248,0.08);
+  position: sticky;
+  top: 0;
+  z-index: 100;
   min-height: 76px;
   display: flex;
   align-items: center;
@@ -351,10 +365,18 @@ th {
   display: grid;
   grid-template-rows: auto 1fr;
   border-bottom: 1px solid rgba(56,189,248,0.12);
+  overflow: hidden;
+  position: relative;
+}
+.landing-hero > * {
+  position: relative;
+  z-index: 1;
 }
 .landing-nav {
-  background: rgba(8,12,18,0.9);
-  backdrop-filter: blur(12px);
+  background: rgba(8,12,18,0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(56,189,248,0.08);
   border: 1px solid rgba(56,189,248,0.12);
   border-radius: 4px;
   display: flex;
@@ -362,6 +384,9 @@ th {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 14px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 .landing-nav div, .hero-actions {
   display: flex;
@@ -381,6 +406,10 @@ th {
   line-height: 0.92;
   margin: 10px 0 20px;
 }
+h1 em {
+  color: #38bdf8;
+  font-style: italic;
+}
 .hero-copy {
   max-width: 620px;
   color: #64748b;
@@ -396,7 +425,8 @@ th {
   background: #0d1320;
   border: 1px solid rgba(56,189,248,0.12);
   border-radius: 4px;
-  padding: 16px;
+  overflow: hidden;
+  padding: 0 16px 16px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 .terminal-title {
@@ -404,7 +434,7 @@ th {
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.15em;
-  margin-bottom: 12px;
+  margin: 14px 0 12px;
   text-transform: uppercase;
 }
 .feed-row {
@@ -422,12 +452,33 @@ th {
   border-bottom: 1px solid rgba(56,189,248,0.12);
 }
 .two-col {
+  align-items: center;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 42px;
+  position: relative;
+}
+.two-col::before {
+  color: rgba(56,189,248,0.18);
+  content: '/';
+  font-family: 'Space Mono', monospace;
+  font-size: clamp(48px, 8vw, 96px);
+  font-weight: 700;
+  left: 50%;
+  line-height: 1;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 .two-col h2, .landing-band h2 {
   font-size: clamp(28px, 4vw, 52px);
+}
+.problem-number {
+  display: inline-block;
+  font-size: 72px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 .two-col p, .landing-band p {
   color: #64748b;
@@ -435,6 +486,7 @@ th {
   line-height: 1.6;
 }
 .steps {
+  background: linear-gradient(180deg, rgba(13,19,32,0) 0%, rgba(13,19,32,0.8) 50%, rgba(13,19,32,0) 100%);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
@@ -498,6 +550,8 @@ th {
   .add-form { grid-template-columns: 1fr; width: 100%; }
   .stats-row { grid-template-columns: 1fr; }
   .stats-row div { border-right: 0; border-bottom: 1px solid rgba(56,189,248,0.12); }
+  .two-col::before { display: none; }
+  .problem-number { font-size: 52px; }
   .hero-grid, .two-col, .steps, .apply-section, .admin-shell .stats-row { grid-template-columns: 1fr; }
   .hero-grid h1 { font-size: 48px; }
   .feed-row { grid-template-columns: 1fr; }
@@ -507,4 +561,9 @@ th {
 @keyframes pulse {
   0%,100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-33.333%); }
 }
