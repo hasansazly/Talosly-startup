@@ -58,6 +58,49 @@
           "risk_factors": ["Elevated value", "Protocol interaction"]
         }
       ]
+    },
+    {
+      "name": "Balancer V2 Vault Demo",
+      "address": "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
+      "chain": "ethereum",
+      "is_active": false,
+      "last_seen_block": 18115570,
+      "transactions": [
+        {
+          "tx_hash": "0xba1a000000000000000000000000000000000000000000000000000000000001",
+          "block_number": 18115564,
+          "from_address": "0xBA1A000000000000000000000000000000000001",
+          "to_address": "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
+          "value_eth": 0,
+          "gas_used": 891244,
+          "input_data": "0x",
+          "risk_score": 96,
+          "risk_summary": "Demo exploit pattern: complex vault interaction with extreme gas usage and suspicious asset movement.",
+          "risk_factors": ["High gas", "Complex vault interaction", "Potential exploit pattern"],
+          "alert": {
+            "telegram_sent": false,
+            "confirmed_threat": true,
+            "feedback_note": "Seeded Balancer V2 hack demo alert for dashboard testing."
+          }
+        },
+        {
+          "tx_hash": "0xba1a000000000000000000000000000000000000000000000000000000000002",
+          "block_number": 18115568,
+          "from_address": "0xBA1A000000000000000000000000000000000002",
+          "to_address": "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
+          "value_eth": 2.35,
+          "gas_used": 476330,
+          "input_data": "0x",
+          "risk_score": 78,
+          "risk_summary": "Demo follow-up transaction with elevated risk after suspicious vault activity.",
+          "risk_factors": ["Follow-up flow", "Elevated value", "High risk protocol activity"],
+          "alert": {
+            "telegram_sent": false,
+            "confirmed_threat": null,
+            "feedback_note": "Seeded follow-up alert for demo history."
+          }
+        }
+      ]
     }
   ],
   "waitlist": [
