@@ -124,6 +124,15 @@ class TransactionScorer:
                 risk_factors=["KNOWN_EXPLOIT_TARGET"],
             )
 
+        # Exploiters often test contracts with 0-value, high-data transactions.
+        if value_eth == 0 and len(input_data or "") >= 200:
+            return RiskScoreResponse(
+                tx_hash=tx_hash,
+                risk_score=72,
+                risk_summary="Zero value with large payload",
+                risk_factors=["PROBE_PATTERN"],
+            )
+
         behavior_result = self._detect_exploit_behavior(
             tx_hash=tx_hash,
             to_address=to_address,
@@ -143,22 +152,13 @@ class TransactionScorer:
                 risk_factors=["SELF_TRANSFER"],
             )
 
-        # Large value transaction - instant 85
+        # Large simple transfers are notable, but should not alert without another exploit signal.
         if value_eth > 1000:
             return RiskScoreResponse(
                 tx_hash=tx_hash,
-                risk_score=85,
+                risk_score=50,
                 risk_summary="Large value transaction detected",
                 risk_factors=["LARGE_VALUE_TRANSACTION"],
-            )
-
-        # Exploiters often test contracts with 0-value, high-data transactions.
-        if value_eth == 0 and len(input_data or "") >= 200:
-            return RiskScoreResponse(
-                tx_hash=tx_hash,
-                risk_score=72,
-                risk_summary="Zero value with large payload",
-                risk_factors=["PROBE_PATTERN"],
             )
 
         # Nothing caught - send to OpenAI
@@ -192,7 +192,8 @@ class TransactionScorer:
             score += 45
             indicators.append("FLASH_LOAN_SELECTOR")
 
-        if value_eth == 0 and selector and selector != "00000000":
+        common_token_selectors = {"23b872dd"}
+        if value_eth == 0 and selector and selector != "00000000" and selector not in common_token_selectors:
             score += 35
             indicators.append("ZERO_VALUE_CONTRACT_CALL")
 
@@ -228,7 +229,7 @@ class TransactionScorer:
         ):
             score = max(score, 85)
 
-        if score < 70 or not indicators:
+        if score < 40 or not indicators:
             return None
 
         return RiskScoreResponse(
@@ -272,9 +273,9 @@ class TransactionScorer:
         if not self.client:
             return RiskScoreResponse(
                 tx_hash=transaction["tx_hash"],
-                risk_score=50,
-                risk_summary="Scoring unavailable",
-                risk_factors=["OpenAI API key not configured"],
+                risk_score=15,
+                risk_summary="No exploit signals detected",
+                risk_factors=["NO_SIGNALS_DETECTED"],
             )
 
         prompt = self._build_prompt(transaction, protocol)
