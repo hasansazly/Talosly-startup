@@ -81,7 +81,11 @@ async def fetch_transaction(rpc: EthereumRPCClient, tx_hash: str) -> dict[str, A
         )
 
     receipt = await rpc.get_transaction_receipt(tx_hash)
-    return rpc.parse_transaction(raw_tx, receipt)
+    tx = rpc.parse_transaction(raw_tx, receipt)
+    if not tx.get("gas_used") and raw_tx.get("gas"):
+        tx["gas_used"] = int(raw_tx["gas"], 16) if isinstance(raw_tx["gas"], str) else raw_tx["gas"]
+    print(f"DEBUG: Parsed Transaction: {tx}")
+    return tx
 
 
 def build_protocol(args: argparse.Namespace, tx: dict[str, Any]) -> dict[str, Any]:
