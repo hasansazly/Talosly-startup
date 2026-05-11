@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import os
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 
@@ -29,6 +30,15 @@ from backend.services.scorer import TransactionScorer  # noqa: E402
 
 
 RISK_THRESHOLD = 70
+
+
+def redact_url(url: str) -> str:
+    parts = urlsplit(url)
+    path_parts = [part for part in parts.path.split("/") if part]
+    if path_parts:
+        path_parts[-1] = "***"
+    redacted_path = "/" + "/".join(path_parts) if path_parts else parts.path
+    return urlunsplit((parts.scheme, parts.netloc, redacted_path, parts.query, parts.fragment))
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,7 +63,15 @@ async def fetch_transaction(rpc: EthereumRPCClient, tx_hash: str) -> dict[str, A
     raw_tx = await rpc._call("eth_getTransactionByHash", [tx_hash])
     print(f"DEBUG: RPC Response: {raw_tx}")
     if not raw_tx:
-        raise ValueError(f"Transaction not found: {tx_hash}")
+        receipt = await rpc.get_transaction_receipt(tx_hash)
+        print(f"DEBUG: Receipt Response: {receipt}")
+        raise ValueError(
+            "Transaction not found by the configured Ethereum RPC provider.\n"
+            f"  tx_hash: {tx_hash}\n"
+            f"  rpc_url: {redact_url(rpc.rpc_url)}\n"
+            "Check that the hash is a real Ethereum mainnet transaction and that "
+            "ETHEREUM_RPC_URL points to an archive-capable/mainnet provider."
+        )
 
     receipt = await rpc.get_transaction_receipt(tx_hash)
     return rpc.parse_transaction(raw_tx, receipt)
