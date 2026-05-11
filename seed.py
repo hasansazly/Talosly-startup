@@ -47,8 +47,11 @@ async def upsert_transaction(conn: asyncpg.Connection, protocol_id: int, tx: dic
             value_eth, gas_used, input_data, risk_score, risk_summary,
             risk_factors, scored_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb,
-                CASE WHEN $9 IS NULL THEN NULL ELSE NOW() END)
+        VALUES (
+            $1::int, $2::text, $3::int, $4::text, $5::text,
+            $6::double precision, $7::int, $8::text, $9::int, $10::text,
+            $11::jsonb, CASE WHEN $9::int IS NULL THEN NULL ELSE NOW() END
+        )
         ON CONFLICT (tx_hash) DO UPDATE
         SET protocol_id = EXCLUDED.protocol_id,
             block_number = EXCLUDED.block_number,
