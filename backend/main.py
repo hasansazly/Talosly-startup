@@ -6,6 +6,7 @@ FastAPI Backend
 import logging
 import time
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -137,6 +138,12 @@ async def head_root():
 @app.api_route("/{path:path}", methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
 async def api_fallback(path: str, request: Request):
     if not path.startswith("api/"):
+        decoded_path = unquote(path)
+        if decoded_path.startswith(("http://", "https://")):
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Not found", "path": request.scope.get("path", "")},
+            )
         asset_path = (FRONTEND_DIST / path).resolve()
         if FRONTEND_DIST in asset_path.parents and asset_path.is_file():
             return FileResponse(asset_path)
