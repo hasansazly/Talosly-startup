@@ -14,6 +14,14 @@ from .blacklist import BLACKLIST, EXPLOIT_TARGETS
 
 logger = logging.getLogger(__name__)
 
+KNOWN_SAFE_ADDRESSES = {
+    "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+    "0xe592427a0aece92de3edee1f18e0157c05861564",
+    "0x1111111254eeb25477b68fb85ed929f73a960582",
+    "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45",
+    "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f",
+}
+
 SYSTEM_PROMPT = """
 You are a DeFi security expert analyzing Ethereum transactions.
 
@@ -96,6 +104,8 @@ class TransactionScorer:
         to_address = norm(transaction.get("to_address") or transaction.get("to"))
         value_eth = value_as_eth(transaction.get("value_eth", transaction.get("value", 0)))
         input_data = transaction.get("input_data", transaction.get("input", "")) or ""
+        gas_used = self._parse_int(transaction.get("gas_used", transaction.get("gas", 0)))
+        selector = self._function_selector(input_data)
 
         # High-confidence hits return immediately to save deeper analysis costs.
         if from_address in BLACKLIST or to_address in BLACKLIST:
@@ -113,6 +123,17 @@ class TransactionScorer:
                 risk_summary="Known exploit target contract interaction",
                 risk_factors=["KNOWN_EXPLOIT_TARGET"],
             )
+
+        behavior_result = self._detect_exploit_behavior(
+            tx_hash=tx_hash,
+            to_address=to_address,
+            value_eth=value_eth,
+            input_data=input_data,
+            gas_used=gas_used,
+            selector=selector,
+        )
+        if behavior_result is not None:
+            return behavior_result
 
         if norm(from_address) == norm(to_address) and from_address is not None:
             return RiskScoreResponse(
@@ -142,6 +163,95 @@ class TransactionScorer:
 
         # Nothing caught - send to OpenAI
         return None
+
+    def _detect_exploit_behavior(
+        self,
+        *,
+        tx_hash: str,
+        to_address: str | None,
+        value_eth: float,
+        input_data: str,
+        gas_used: int,
+        selector: str,
+    ) -> RiskScoreResponse | None:
+        if to_address in KNOWN_SAFE_ADDRESSES:
+            return None
+
+        indicators: list[str] = []
+        score = 0
+
+        flash_loan_selectors = {
+            "5cffe9de",
+            "ab9c4b5d",
+            "e0232b42",
+            "490e6cbc",
+            "d9d98ce4",
+            "61461954",
+        }
+        if selector in flash_loan_selectors:
+            score += 45
+            indicators.append("FLASH_LOAN_SELECTOR")
+
+        if value_eth == 0 and selector and selector != "00000000":
+            score += 35
+            indicators.append("ZERO_VALUE_CONTRACT_CALL")
+
+        if gas_used > 2_000_000:
+            score += 35
+            indicators.append("EXTREME_GAS_USAGE")
+        elif gas_used > 500_000:
+            score += 25
+            indicators.append("HIGH_GAS_EXECUTION")
+
+        if value_eth == 0 and len(input_data) >= 200:
+            score += 20
+            indicators.append("LARGE_PAYLOAD_PROBE")
+
+        if selector == "095ea7b3" and "f" * 64 in input_data.lower():
+            score += 50
+            indicators.append("MAX_APPROVAL")
+
+        if selector == "23b872dd":
+            score += 20
+            indicators.append("TRANSFER_FROM")
+
+        if selector in {"3659cfe6", "4f1ef286"}:
+            score += 55
+            indicators.append("PROXY_UPGRADE")
+
+        if value_eth > 1000:
+            score += 40
+            indicators.append("LARGE_VALUE_TRANSACTION")
+
+        if score < 70 or not indicators:
+            return None
+
+        return RiskScoreResponse(
+            tx_hash=tx_hash,
+            risk_score=min(score, 98),
+            risk_summary=f"Exploit behavior detected: {', '.join(indicators[:2]).replace('_', ' ').lower()}",
+            risk_factors=indicators[:3],
+        )
+
+    def _function_selector(self, input_data: str) -> str:
+        clean = (input_data or "").lower()
+        if clean.startswith("0x"):
+            clean = clean[2:]
+        return clean[:8]
+
+    def _parse_int(self, value: Any) -> int:
+        if value is None:
+            return 0
+        if isinstance(value, bool):
+            return 0
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value, 16) if value.startswith("0x") else int(value)
+            except ValueError:
+                return 0
+        return 0
 
     async def score_transaction(self, transaction: dict[str, Any], protocol: dict[str, Any]) -> RiskScoreResponse:
         # Pre-screen before calling OpenAI, and before checking OpenAI config.

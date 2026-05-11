@@ -217,6 +217,40 @@ def test_pre_screen_flags_zero_value_payload_probe_with_rpc_field_names():
     assert result.risk_factors == ["PROBE_PATTERN"]
 
 
+def test_pre_screen_flags_euler_style_behavior_without_blacklist():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xc310a0affe2169d1f6feec1c63dbc7f7c62a887fa48795d327d4d2da2d6b111d",
+            "from_address": "0x0000000000000000000000000000000000000001",
+            "to_address": "0xebc29199c817dc47ba12e3f86102564d640cbf99",
+            "value_eth": 0,
+            "gas_used": 6_211_412,
+            "input_data": "0x863df8af",
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score >= 70
+    assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "EXTREME_GAS_USAGE"]
+
+
+def test_pre_screen_ignores_known_safe_router_for_behavioral_rules():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x0000000000000000000000000000000000000001",
+            "to_address": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+            "value_eth": 0,
+            "gas_used": 900_000,
+            "input_data": "0x863df8af",
+        }
+    )
+
+    assert result is None
+
+
 @pytest.mark.asyncio
 async def test_score_transaction_boosts_probe_pattern_to_alert_threshold(monkeypatch):
     async def fake_address_label(_address):

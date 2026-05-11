@@ -21,6 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 from dotenv import load_dotenv
 
 # Guardrails: set before importing app services.
+load_dotenv()
 os.environ.setdefault("BACKTEST_MODE", "1")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "DISABLED")
 os.environ.setdefault("TELEGRAM_CHAT_ID", "DISABLED")
@@ -114,7 +115,6 @@ def print_report(tx: dict[str, Any], protocol: dict[str, Any], result: Any) -> N
 
 
 async def main() -> None:
-    load_dotenv()
     args = parse_args()
     if args.ignore_blacklist:
         BLACKLIST.clear()
