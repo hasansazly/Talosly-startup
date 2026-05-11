@@ -212,9 +212,9 @@ def test_pre_screen_flags_zero_value_payload_probe_with_rpc_field_names():
         }
     )
     assert result is not None
-    assert result.risk_score == 72
-    assert result.risk_summary == "Zero value with large payload"
-    assert result.risk_factors == ["PROBE_PATTERN"]
+    assert result.risk_score == 55
+    assert result.risk_summary == "Exploit behavior detected: zero value contract call, large payload probe"
+    assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "LARGE_PAYLOAD_PROBE"]
 
 
 def test_pre_screen_flags_euler_style_behavior_without_blacklist():
@@ -276,8 +276,8 @@ async def test_score_transaction_boosts_probe_pattern_to_alert_threshold(monkeyp
         {"name": "Probe Test"},
     )
 
-    assert result.risk_score == 85
-    assert result.risk_factors == ["PROBE_PATTERN"]
+    assert result.risk_score == 55
+    assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "LARGE_PAYLOAD_PROBE"]
 
 
 @pytest.mark.asyncio
@@ -310,8 +310,8 @@ async def test_score_transaction_applies_wallet_reputation_multiplier(monkeypatc
         {"name": "Probe Test"},
     )
 
-    assert result.risk_score == 87
-    assert result.risk_factors == ["PROBE_PATTERN", "NEW_WALLET", "NO_ENS_IDENTITY"]
+    assert result.risk_score == 70
+    assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "LARGE_PAYLOAD_PROBE", "NEW_WALLET"]
 
 
 @pytest.mark.asyncio

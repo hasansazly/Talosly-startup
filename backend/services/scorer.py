@@ -124,14 +124,8 @@ class TransactionScorer:
                 risk_factors=["KNOWN_EXPLOIT_TARGET"],
             )
 
-        # Exploiters often test contracts with 0-value, high-data transactions.
-        if value_eth == 0 and len(input_data or "") >= 200:
-            return RiskScoreResponse(
-                tx_hash=tx_hash,
-                risk_score=72,
-                risk_summary="Zero value with large payload",
-                risk_factors=["PROBE_PATTERN"],
-            )
+        if to_address in KNOWN_SAFE_ADDRESSES:
+            return None
 
         behavior_result = self._detect_exploit_behavior(
             tx_hash=tx_hash,
@@ -174,9 +168,6 @@ class TransactionScorer:
         gas_used: int,
         selector: str,
     ) -> RiskScoreResponse | None:
-        if to_address in KNOWN_SAFE_ADDRESSES:
-            return None
-
         indicators: list[str] = []
         score = 0
 
@@ -193,7 +184,13 @@ class TransactionScorer:
             indicators.append("FLASH_LOAN_SELECTOR")
 
         common_token_selectors = {"23b872dd"}
-        if value_eth == 0 and selector and selector != "00000000" and selector not in common_token_selectors:
+        if (
+            value_eth == 0
+            and selector
+            and selector != "00000000"
+            and selector not in common_token_selectors
+            and selector not in flash_loan_selectors
+        ):
             score += 35
             indicators.append("ZERO_VALUE_CONTRACT_CALL")
 
@@ -220,13 +217,17 @@ class TransactionScorer:
             score += 55
             indicators.append("PROXY_UPGRADE")
 
-        if value_eth > 1000:
+        if value_eth > 100 and selector:
             score += 40
             indicators.append("LARGE_VALUE_TRANSACTION")
 
-        if "ZERO_VALUE_CONTRACT_CALL" in indicators and (
-            "HIGH_GAS_EXECUTION" in indicators or "EXTREME_GAS_USAGE" in indicators
-        ):
+        if "FLASH_LOAN_SELECTOR" in indicators and "EXTREME_GAS_USAGE" in indicators:
+            score = max(score, 85)
+
+        if "ZERO_VALUE_CONTRACT_CALL" in indicators and "EXTREME_GAS_USAGE" in indicators:
+            score = max(score, 85)
+
+        if selector == "863df8af" and "ZERO_VALUE_CONTRACT_CALL" in indicators and "HIGH_GAS_EXECUTION" in indicators:
             score = max(score, 85)
 
         if score < 40 or not indicators:

@@ -31,7 +31,7 @@ from backend.services.blacklist import BLACKLIST  # noqa: E402
 from backend.services.scorer import TransactionScorer  # noqa: E402
 
 
-TEST_CASES_PATH = Path(__file__).parent / "replay_test_cases.json"
+TEST_CASES_PATH = Path(__file__).parent / "replay_test_cases_v2.json"
 
 
 @dataclass
@@ -123,7 +123,7 @@ async def run_test_case(scorer: TransactionScorer, case: dict[str, Any]) -> Test
             category=case["category"],
             expected_min=expected_min,
             expected_max=expected_max,
-            expected_band=case["expected_band"],
+            expected_band=case.get("expected_band", f"{score_band(expected_min)}_TO_{score_band(expected_max)}"),
             actual_score=actual_score,
             actual_factors=list(result.risk_factors),
             actual_summary=result.risk_summary,

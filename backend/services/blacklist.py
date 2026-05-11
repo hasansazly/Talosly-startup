@@ -1,6 +1,11 @@
 # blacklist.py
 # Use lowercase for consistent normalization
 BLACKLIST = {
+    # Tornado Cash core contracts
+    "0x722122df12d4e14e13ac3b6895a86e84145b6967",
+    "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b",
+    "0x910cbd523d972eb0a6f4cae4618ad62622b39dbf",
+    "0xa160cdab225685da1d56aa342ad8841c3b53f291",
     # Ronin / Axie Infinity - Lazarus Group (Mar 2022)
     "0x098b716b8aaf21512996dc57eb0615e2383e2f96",
     # Euler Finance (Mar 2023)
