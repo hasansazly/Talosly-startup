@@ -26,6 +26,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "DISABLED")
 os.environ.setdefault("TELEGRAM_CHAT_ID", "DISABLED")
 
 from backend.services.rpc import EthereumRPCClient  # noqa: E402
+from backend.services.blacklist import BLACKLIST  # noqa: E402
 from backend.services.scorer import TransactionScorer  # noqa: E402
 
 
@@ -55,6 +56,11 @@ def parse_args() -> argparse.Namespace:
         "--protocol-address",
         default=None,
         help="Protocol address to pass into the scorer. Defaults to the transaction recipient.",
+    )
+    parser.add_argument(
+        "--ignore-blacklist",
+        action="store_true",
+        help="Temporarily disable blacklist matches for this replay run.",
     )
     return parser.parse_args()
 
@@ -110,6 +116,9 @@ def print_report(tx: dict[str, Any], protocol: dict[str, Any], result: Any) -> N
 async def main() -> None:
     load_dotenv()
     args = parse_args()
+    if args.ignore_blacklist:
+        BLACKLIST.clear()
+        print("DEBUG: Blacklist disabled for this replay run.")
 
     rpc = EthereumRPCClient()
     scorer = TransactionScorer()
