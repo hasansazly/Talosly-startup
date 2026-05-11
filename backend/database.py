@@ -16,13 +16,17 @@ def _record_to_dict(row: asyncpg.Record | None) -> dict[str, Any] | None:
 async def init_db() -> None:
     global _pool
     if _pool is None:
-        try:
-            _pool = await _create_pool(settings.database_url)
-        except OSError:
-            if not settings.database_public_url:
-                raise
-            _pool = await _create_pool(settings.database_public_url)
+        _pool = await _create_preferred_pool()
     await _create_tables()
+
+
+async def _create_preferred_pool() -> asyncpg.Pool:
+    try:
+        return await _create_pool(settings.database_url)
+    except (OSError, asyncpg.PostgresConnectionError):
+        if not settings.database_public_url:
+            raise
+        return await _create_pool(settings.database_public_url)
 
 
 async def _create_pool(database_url: str) -> asyncpg.Pool:
