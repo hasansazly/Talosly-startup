@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
 
 async def fetch_transaction(rpc: EthereumRPCClient, tx_hash: str) -> dict[str, Any]:
     raw_tx = await rpc._call("eth_getTransactionByHash", [tx_hash])
+    print(f"DEBUG: RPC Response: {raw_tx}")
     if not raw_tx:
         raise ValueError(f"Transaction not found: {tx_hash}")
 
