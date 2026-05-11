@@ -17,15 +17,21 @@ load_dotenv()
 target_metadata = None
 
 
-def database_url() -> str:
-    url = settings.database_url
+def normalize_database_url(url: str) -> str:
     if url.startswith("postgresql://"):
         return url.replace("postgresql://", "postgresql+asyncpg://", 1)
     return url
 
 
+def database_urls() -> list[str]:
+    urls = [settings.database_url]
+    if settings.database_public_url and settings.database_public_url not in urls:
+        urls.append(settings.database_public_url)
+    return [normalize_database_url(url) for url in urls]
+
+
 def run_migrations_offline() -> None:
-    context.configure(url=database_url(), target_metadata=target_metadata, literal_binds=True)
+    context.configure(url=database_urls()[0], target_metadata=target_metadata, literal_binds=True)
 
     with context.begin_transaction():
         context.run_migrations()
@@ -39,14 +45,24 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = database_url()
-    connectable = async_engine_from_config(configuration, prefix="sqlalchemy.")
+    last_error: Exception | None = None
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+    for url in database_urls():
+        configuration = config.get_section(config.config_ini_section, {})
+        configuration["sqlalchemy.url"] = url
+        connectable = async_engine_from_config(configuration, prefix="sqlalchemy.")
 
-    await connectable.dispose()
+        try:
+            async with connectable.connect() as connection:
+                await connection.run_sync(do_run_migrations)
+            return
+        except Exception as exc:
+            last_error = exc
+        finally:
+            await connectable.dispose()
+
+    assert last_error is not None
+    raise last_error
 
 
 if context.is_offline_mode():
