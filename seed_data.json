@@ -1,0 +1,72 @@
+{
+  "protocols": [
+    {
+      "name": "Uniswap V3 Router",
+      "address": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+      "chain": "ethereum",
+      "is_active": true,
+      "last_seen_block": 19876543,
+      "transactions": [
+        {
+          "tx_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "block_number": 19876540,
+          "from_address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+          "to_address": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+          "value_eth": 0.72,
+          "gas_used": 187420,
+          "input_data": "0x",
+          "risk_score": 24,
+          "risk_summary": "Routine swap activity with no obvious anomaly.",
+          "risk_factors": ["Known router", "Moderate value"]
+        },
+        {
+          "tx_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+          "block_number": 19876542,
+          "from_address": "0x1111111254EEB25477B68fb85Ed929f73A960582",
+          "to_address": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
+          "value_eth": 18.4,
+          "gas_used": 612980,
+          "input_data": "0x",
+          "risk_score": 82,
+          "risk_summary": "Large, complex transaction touching router contract.",
+          "risk_factors": ["High value", "High gas", "Complex call path"],
+          "alert": {
+            "telegram_sent": false,
+            "confirmed_threat": null,
+            "feedback_note": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "Aave V3 Pool",
+      "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "chain": "ethereum",
+      "is_active": true,
+      "last_seen_block": 19876538,
+      "transactions": [
+        {
+          "tx_hash": "0x3333333333333333333333333333333333333333333333333333333333333333",
+          "block_number": 19876537,
+          "from_address": "0x28C6c06298d514Db089934071355E5743bf21d60",
+          "to_address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+          "value_eth": 4.1,
+          "gas_used": 301144,
+          "input_data": "0x",
+          "risk_score": 67,
+          "risk_summary": "Elevated activity but below alert threshold.",
+          "risk_factors": ["Elevated value", "Protocol interaction"]
+        }
+      ]
+    }
+  ],
+  "waitlist": [
+    {
+      "email": "founder@example.com",
+      "name": "Demo Founder",
+      "project": "Sentinel Vault",
+      "twitter": "@sentinelvault",
+      "goal": "Evaluate Talosly alerts before public beta."
+    }
+  ]
+}
