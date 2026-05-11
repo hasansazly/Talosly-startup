@@ -223,6 +223,11 @@ class TransactionScorer:
             score += 40
             indicators.append("LARGE_VALUE_TRANSACTION")
 
+        if "ZERO_VALUE_CONTRACT_CALL" in indicators and (
+            "HIGH_GAS_EXECUTION" in indicators or "EXTREME_GAS_USAGE" in indicators
+        ):
+            score = max(score, 85)
+
         if score < 70 or not indicators:
             return None
 

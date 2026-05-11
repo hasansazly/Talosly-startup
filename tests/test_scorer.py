@@ -231,7 +231,7 @@ def test_pre_screen_flags_euler_style_behavior_without_blacklist():
     )
 
     assert result is not None
-    assert result.risk_score >= 70
+    assert result.risk_score >= 85
     assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "EXTREME_GAS_USAGE"]
 
 
