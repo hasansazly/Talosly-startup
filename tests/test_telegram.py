@@ -82,8 +82,17 @@ async def test_should_send_alert_allows_warning_to_critical_escalation(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_telegram_send_suppressed_by_dedupe_does_not_post(monkeypatch):
+async def test_smart_alert_batches_recent_critical_by_editing_message(monkeypatch):
     posts = []
+    saved = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"ok":true,"result":{"message_id":123}}'
+        is_success = True
+
+        def json(self):
+            return {"ok": True, "result": {"message_id": 123}}
 
     class FakeClient:
         def __init__(self, timeout):
@@ -97,27 +106,168 @@ async def test_telegram_send_suppressed_by_dedupe_does_not_post(monkeypatch):
 
         async def post(self, url, json):
             posts.append({"url": url, "json": json})
-            raise AssertionError("Telegram should not be called when deduped")
-
-    async def fake_should_send_alert(_protocol_address, _severity):
-        return False
+            return FakeResponse()
 
     monkeypatch.setattr(settings, "telegram_bot_token", "test-token")
     monkeypatch.setattr(settings, "telegram_chat_id", "123")
     monkeypatch.setattr("backend.services.telegram.httpx.AsyncClient", FakeClient)
 
     service = TelegramService()
-    monkeypatch.setattr(service, "should_send_alert", fake_should_send_alert)
+    async def fake_state(_address):
+        return {
+            "last_alert_time": datetime.utcnow() - timedelta(minutes=2),
+            "last_alert_message_id": 123,
+            "alert_batch_count": 1,
+            "last_alert_severity": "CRITICAL",
+        }
 
-    result = await service.send_alert(
+    monkeypatch.setattr(service, "_get_protocol_alert_state", fake_state)
+
+    async def fake_save(address, message_id, batch_count, severity, sent_at):
+        saved.update(
+            {
+                "address": address,
+                "message_id": message_id,
+                "batch_count": batch_count,
+                "severity": severity,
+                "sent_at": sent_at,
+            }
+        )
+
+    monkeypatch.setattr(service, "_save_protocol_alert_state", fake_save)
+
+    result = await service.send_smart_alert(
         {"name": "Uniswap V3", "address": "0xprotocol"},
-        {"tx_hash": "0xabc"},
-        {"risk_score": 98},
+        98,
+        "0xabc",
     )
 
-    assert result is False
-    assert service.last_send_suppressed is True
-    assert posts == []
+    assert result is True
+    assert len(posts) == 1
+    assert "editMessageText" in posts[0]["url"]
+    assert posts[0]["json"]["message_id"] == 123
+    assert posts[0]["json"]["text"] == "🔴 [CRITICAL] 2 additional transactions detected! Status: Ongoing Attack. Latest Tx: 0xabc"
+    assert saved["batch_count"] == 2
+    assert saved["severity"] == "CRITICAL"
+
+
+@pytest.mark.asyncio
+async def test_smart_alert_sends_new_message_when_warning_escalates_to_critical(monkeypatch):
+    posts = []
+    saved = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"ok":true,"result":{"message_id":456}}'
+        is_success = True
+
+        def json(self):
+            return {"ok": True, "result": {"message_id": 456}}
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return None
+
+        async def post(self, url, json):
+            posts.append({"url": url, "json": json})
+            return FakeResponse()
+
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-token")
+    monkeypatch.setattr(settings, "telegram_chat_id", "123")
+    monkeypatch.setattr("backend.services.telegram.httpx.AsyncClient", FakeClient)
+
+    service = TelegramService()
+    async def fake_state(_address):
+        return {
+            "last_alert_time": datetime.utcnow() - timedelta(minutes=2),
+            "last_alert_message_id": 123,
+            "alert_batch_count": 1,
+            "last_alert_severity": "WARNING",
+        }
+
+    monkeypatch.setattr(service, "_get_protocol_alert_state", fake_state)
+
+    async def fake_save(address, message_id, batch_count, severity, sent_at):
+        saved.update({"address": address, "message_id": message_id, "batch_count": batch_count, "severity": severity})
+
+    monkeypatch.setattr(service, "_save_protocol_alert_state", fake_save)
+
+    result = await service.send_smart_alert({"name": "Aave", "address": "0xprotocol"}, 98, "0xabc")
+
+    assert result is True
+    assert len(posts) == 1
+    assert "sendMessage" in posts[0]["url"]
+    assert "editMessageText" not in posts[0]["url"]
+    assert saved["message_id"] == 456
+    assert saved["batch_count"] == 1
+    assert saved["severity"] == "CRITICAL"
+
+
+@pytest.mark.asyncio
+async def test_smart_alert_sends_new_message_when_old_message_cannot_be_edited(monkeypatch):
+    posts = []
+    saved = {}
+
+    class FakeResponse:
+        def __init__(self, status_code, message_id=None):
+            self.status_code = status_code
+            self.text = '{"ok":true}' if status_code < 400 else '{"ok":false}'
+            self.is_success = status_code < 400
+            self.message_id = message_id
+
+        def json(self):
+            return {"ok": self.is_success, "result": {"message_id": self.message_id}}
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return None
+
+        async def post(self, url, json):
+            posts.append({"url": url, "json": json})
+            if "editMessageText" in url:
+                return FakeResponse(400)
+            return FakeResponse(200, 999)
+
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-token")
+    monkeypatch.setattr(settings, "telegram_chat_id", "123")
+    monkeypatch.setattr("backend.services.telegram.httpx.AsyncClient", FakeClient)
+
+    service = TelegramService()
+    async def fake_state(_address):
+        return {
+            "last_alert_time": datetime.utcnow() - timedelta(minutes=2),
+            "last_alert_message_id": 123,
+            "alert_batch_count": 3,
+            "last_alert_severity": "CRITICAL",
+        }
+
+    monkeypatch.setattr(service, "_get_protocol_alert_state", fake_state)
+
+    async def fake_save(address, message_id, batch_count, severity, sent_at):
+        saved.update({"address": address, "message_id": message_id, "batch_count": batch_count, "severity": severity})
+
+    monkeypatch.setattr(service, "_save_protocol_alert_state", fake_save)
+
+    result = await service.send_smart_alert({"name": "Aave", "address": "0xprotocol"}, 98, "0xabc")
+
+    assert result is True
+    assert len(posts) == 2
+    assert "editMessageText" in posts[0]["url"]
+    assert "sendMessage" in posts[1]["url"]
+    assert saved["message_id"] == 999
+    assert saved["batch_count"] == 1
 
 
 def test_telegram_plain_message_removes_html_tags_and_unescapes_values():
@@ -146,6 +296,9 @@ async def test_telegram_send_retries_without_parse_mode_after_html_400(monkeypat
             self.status_code = status_code
             self.text = text
             self.is_success = status_code < 400
+
+        def json(self):
+            return {"ok": self.is_success, "result": {"message_id": 321}}
 
     class FakeClient:
         def __init__(self, timeout):

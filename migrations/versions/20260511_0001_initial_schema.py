@@ -24,10 +24,18 @@ def upgrade() -> None:
             chain TEXT NOT NULL DEFAULT 'ethereum',
             is_active BOOLEAN NOT NULL DEFAULT TRUE,
             last_seen_block INTEGER,
+            last_alert_time TIMESTAMPTZ,
+            last_alert_message_id BIGINT,
+            alert_batch_count INTEGER NOT NULL DEFAULT 0,
+            last_alert_severity TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
     )
+    op.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS last_alert_time TIMESTAMPTZ")
+    op.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS last_alert_message_id BIGINT")
+    op.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS alert_batch_count INTEGER NOT NULL DEFAULT 0")
+    op.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS last_alert_severity TEXT")
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS transactions (

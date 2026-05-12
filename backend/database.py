@@ -64,10 +64,18 @@ async def _create_tables() -> None:
                 chain TEXT NOT NULL DEFAULT 'ethereum',
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 last_seen_block INTEGER,
+                last_alert_time TIMESTAMPTZ,
+                last_alert_message_id BIGINT,
+                alert_batch_count INTEGER NOT NULL DEFAULT 0,
+                last_alert_severity TEXT,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """
         )
+        await conn.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS last_alert_time TIMESTAMPTZ")
+        await conn.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS last_alert_message_id BIGINT")
+        await conn.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS alert_batch_count INTEGER NOT NULL DEFAULT 0")
+        await conn.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS last_alert_severity TEXT")
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS transactions (
