@@ -66,6 +66,7 @@ async def normalize_vercel_paths(request: Request, call_next):
 app.include_router(protocols_router, prefix="/api/protocols", tags=["protocols"])
 app.include_router(transactions_router, prefix="/api/transactions", tags=["transactions"])
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
+app.include_router(alerts_router, prefix="/api/v1/alerts", tags=["alerts"])
 app.include_router(waitlist_router, prefix="/api/waitlist", tags=["waitlist"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 

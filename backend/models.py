@@ -49,12 +49,17 @@ class AlertResponse(BaseModel):
     risk_score: int
     risk_summary: Optional[str]
     telegram_sent: bool
+    confirmed_threat: Optional[bool] = None
     created_at: str
 
 
 class AlertFeedback(BaseModel):
     confirmed_threat: bool
     feedback_note: Optional[str] = None
+
+
+class AlertFeedbackPatch(BaseModel):
+    feedback: bool
 
 
 class RiskScoreResponse(BaseModel):

@@ -54,6 +54,8 @@ export const getTransactions = (protocolId, limit = 50) =>
   unwrap(api.get('/api/transactions', { params: { protocol_id: protocolId || undefined, limit }, headers: authHeaders() }));
 export const getAlerts = (limit = 100) => unwrap(api.get('/api/alerts', { params: { limit }, headers: authHeaders() }));
 export const getAlertStats = () => unwrap(api.get('/api/alerts/stats', { headers: authHeaders() }));
+export const submitAlertFeedback = (alertId, feedback) =>
+  unwrap(api.patch(`/api/v1/alerts/${alertId}/feedback`, { feedback }, { headers: authHeaders() }));
 export const getAdminMetrics = () => unwrap(api.get('/api/admin/metrics', { headers: adminHeaders() }));
 export const getAdminWaitlist = () => unwrap(api.get('/api/admin/waitlist', { headers: adminHeaders() }));
 export const approveWaitlist = (id) => unwrap(api.post(`/api/admin/waitlist/${id}/approve`, null, { headers: adminHeaders() }));

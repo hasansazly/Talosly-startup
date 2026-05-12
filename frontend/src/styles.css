@@ -349,6 +349,39 @@ th {
   margin-bottom: 12px;
 }
 .filters input { width: 84px; }
+.feedback-actions {
+  display: flex;
+  gap: 6px;
+}
+.feedback-button {
+  align-items: center;
+  background: rgba(100,116,139,0.12);
+  border: 1px solid rgba(148,163,184,0.18);
+  color: #e2e8f0;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+  text-transform: none;
+  width: 30px;
+}
+.feedback-button:hover {
+  background: rgba(148,163,184,0.18);
+}
+.feedback-button.positive.selected {
+  background: rgba(52,211,153,0.18);
+  border-color: rgba(52,211,153,0.5);
+  color: #34d399;
+}
+.feedback-button.negative.selected {
+  background: rgba(248,113,113,0.18);
+  border-color: rgba(248,113,113,0.5);
+  color: #f87171;
+}
+.feedback-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
 .key-panel {
   display: grid;
   gap: 14px;

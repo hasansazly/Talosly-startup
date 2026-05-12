@@ -57,6 +57,35 @@ def test_alert_feedback_records_manual_review(monkeypatch):
     }
 
 
+def test_alert_feedback_patch_records_boolean_feedback(monkeypatch):
+    recorded = {}
+
+    async def fake_submit_alert_feedback(alert_id, confirmed_threat, feedback_note):
+        recorded.update(
+            {
+                "alert_id": alert_id,
+                "confirmed_threat": confirmed_threat,
+                "feedback_note": feedback_note,
+            }
+        )
+        return True
+
+    app.dependency_overrides[verify_api_key] = lambda: {"id": 1}
+    monkeypatch.setattr("backend.database.submit_alert_feedback", fake_submit_alert_feedback)
+    try:
+        response = TestClient(app).patch("/api/v1/alerts/42/feedback", json={"feedback": False})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "success", "message": "Feedback recorded for alert 42"}
+    assert recorded == {
+        "alert_id": 42,
+        "confirmed_threat": False,
+        "feedback_note": None,
+    }
+
+
 def test_alert_feedback_returns_404_for_missing_alert(monkeypatch):
     async def fake_submit_alert_feedback(_alert_id, _confirmed_threat, _feedback_note):
         return False

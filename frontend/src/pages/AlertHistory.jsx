@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getAlerts, getAlertStats } from '../api.js';
+import { getAlerts, getAlertStats, submitAlertFeedback } from '../api.js';
 import RiskBadge from '../components/RiskBadge.jsx';
 
 function shorten(value) {
@@ -13,6 +13,7 @@ export default function AlertHistory() {
   const [stats, setStats] = useState({ today: 0, this_week: 0, all_time: 0 });
   const [min, setMin] = useState(0);
   const [max, setMax] = useState(100);
+  const [savingFeedback, setSavingFeedback] = useState({});
 
   useEffect(() => {
     getAlerts(200).then(setAlerts).catch(() => setAlerts([]));
@@ -23,6 +24,18 @@ export default function AlertHistory() {
     () => alerts.filter((alert) => alert.risk_score >= Number(min) && alert.risk_score <= Number(max)),
     [alerts, min, max]
   );
+
+  async function handleFeedback(alertId, feedback) {
+    setSavingFeedback((current) => ({ ...current, [alertId]: true }));
+    try {
+      await submitAlertFeedback(alertId, feedback);
+      setAlerts((current) =>
+        current.map((alert) => (alert.id === alertId ? { ...alert, confirmed_threat: feedback } : alert))
+      );
+    } finally {
+      setSavingFeedback((current) => ({ ...current, [alertId]: false }));
+    }
+  }
 
   return (
     <main className="app-shell">
@@ -53,11 +66,12 @@ export default function AlertHistory() {
                 <th>Summary</th>
                 <th>Time</th>
                 <th>Telegram</th>
+                <th>Feedback</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan="6" className="empty-row">No alerts match this range</td></tr>
+                <tr><td colSpan="7" className="empty-row">No alerts match this range</td></tr>
               ) : filtered.map((alert) => (
                 <tr key={alert.id}>
                   <td>{alert.protocol_name}</td>
@@ -66,6 +80,30 @@ export default function AlertHistory() {
                   <td>{alert.risk_summary}</td>
                   <td>{alert.created_at}</td>
                   <td>{alert.telegram_sent ? '✓' : '×'}</td>
+                  <td>
+                    <div className="feedback-actions" aria-label={`Feedback for alert ${alert.id}`}>
+                      <button
+                        type="button"
+                        className={`feedback-button positive ${alert.confirmed_threat === true ? 'selected' : ''}`}
+                        aria-label="Mark alert as useful"
+                        title="Useful alert"
+                        disabled={Boolean(savingFeedback[alert.id])}
+                        onClick={() => handleFeedback(alert.id, true)}
+                      >
+                        👍
+                      </button>
+                      <button
+                        type="button"
+                        className={`feedback-button negative ${alert.confirmed_threat === false ? 'selected' : ''}`}
+                        aria-label="Mark alert as not useful"
+                        title="Not useful"
+                        disabled={Boolean(savingFeedback[alert.id])}
+                        onClick={() => handleFeedback(alert.id, false)}
+                      >
+                        👎
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

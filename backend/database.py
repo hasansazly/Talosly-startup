@@ -354,7 +354,8 @@ async def get_alerts(limit: int = 100) -> list[dict[str, Any]]:
         SELECT
             alerts.id, alerts.transaction_id, transactions.tx_hash,
             protocols.name AS protocol_name, alerts.risk_score,
-            alerts.risk_summary, alerts.telegram_sent, alerts.created_at
+            alerts.risk_summary, alerts.telegram_sent, alerts.confirmed_threat,
+            alerts.created_at
         FROM alerts
         JOIN transactions ON transactions.id = alerts.transaction_id
         JOIN protocols ON protocols.id = transactions.protocol_id
