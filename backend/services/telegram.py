@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from backend.config import settings
+from backend.services.scorer import get_severity
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +81,25 @@ class TelegramService:
 
     def _format_message(self, protocol: dict[str, Any], transaction: dict[str, Any], score_result: Any) -> str:
         risk_score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
+        risk_summary = getattr(score_result, "risk_summary", None) if not isinstance(score_result, dict) else score_result.get("risk_summary")
+        severity = get_severity(int(risk_score or 0))
+        icons = {
+            "CRITICAL": "🔴 <b>[CRITICAL THREAT]</b>",
+            "WARNING": "🟡 <b>[WARNING]</b>",
+            "INFO": "🔵 <b>[INFO]</b>",
+        }
         p_name = html.escape(str(protocol.get("name") or "Unknown Protocol"))
         s_val = html.escape(str(risk_score or "0"))
         h_val = html.escape(str(transaction.get("tx_hash") or "No Hash Available"))
-        msg = f"🚨 <b>New Risk Alert</b> 🚨\n<b>Protocol:</b> {p_name}\n<b>Score:</b> <code>{s_val}</code>\n<b>TX:</b> <code>{h_val}</code>"
+        summary = html.escape(str(risk_summary or "No summary available"))
+        tx_url = f"https://etherscan.io/tx/{h_val}" if h_val != "No Hash Available" else "No Hash Available"
+        msg = (
+            f"{icons[severity]}\n"
+            f"<b>Protocol:</b> {p_name}\n"
+            f"<b>Risk Score:</b> <code>{s_val}/100</code>\n"
+            f"<b>Summary:</b> {summary}\n"
+            f"<b>View Tx:</b> {tx_url}"
+        )
         return msg
 
     def _format_plain_message(self, message: str) -> str:

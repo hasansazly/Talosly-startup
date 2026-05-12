@@ -15,7 +15,7 @@ def test_telegram_message_escapes_dynamic_values_before_html_formatting():
     assert "Bad &lt;Protocol&gt; &quot;Alpha&quot;" in message
     assert "0xabc&lt;bad&gt;&amp;hash" in message
     assert "Bad <Protocol>" not in message
-    assert "0xabc<bad>&hash" not in message
+    assert "Summary:" in message
 
 
 def test_telegram_message_uses_safe_fallbacks_for_empty_values():
@@ -23,20 +23,32 @@ def test_telegram_message_uses_safe_fallbacks_for_empty_values():
     message = service._format_message({}, {}, {"risk_score": None})
 
     assert "<b>Protocol:</b> Unknown Protocol" in message
-    assert "<b>Score:</b> <code>0</code>" in message
-    assert "<b>TX:</b> <code>No Hash Available</code>" in message
+    assert "<b>Risk Score:</b> <code>0/100</code>" in message
+    assert "<b>View Tx:</b> No Hash Available" in message
 
 
 def test_telegram_message_uses_explicit_newline_string_format():
     service = TelegramService()
-    message = service._format_message({"name": "Uniswap V3"}, {"tx_hash": "0xabc123"}, {"risk_score": 72})
+    message = service._format_message(
+        {"name": "Uniswap V3"},
+        {"tx_hash": "0xabc123"},
+        {"risk_score": 72, "risk_summary": "Suspicious high gas execution"},
+    )
 
     assert message == (
-        "🚨 <b>New Risk Alert</b> 🚨\n"
+        "🔴 <b>[CRITICAL THREAT]</b>\n"
         "<b>Protocol:</b> Uniswap V3\n"
-        "<b>Score:</b> <code>72</code>\n"
-        "<b>TX:</b> <code>0xabc123</code>"
+        "<b>Risk Score:</b> <code>72/100</code>\n"
+        "<b>Summary:</b> Suspicious high gas execution\n"
+        "<b>View Tx:</b> https://etherscan.io/tx/0xabc123"
     )
+
+
+def test_telegram_message_uses_warning_visual_for_medium_score():
+    service = TelegramService()
+    message = service._format_message({"name": "Aave"}, {"tx_hash": "0xabc"}, {"risk_score": 45})
+
+    assert message.startswith("🟡 <b>[WARNING]</b>")
 
 
 def test_telegram_plain_message_removes_html_tags_and_unescapes_values():
@@ -48,10 +60,11 @@ def test_telegram_plain_message_removes_html_tags_and_unescapes_values():
     )
 
     assert service._format_plain_message(message) == (
-        '🚨 New Risk Alert 🚨\n'
+        '🔴 [CRITICAL THREAT]\n'
         'Protocol: Bad <Protocol> "Alpha"\n'
-        'Score: 98\n'
-        'TX: 0xabc<bad>&hash'
+        'Risk Score: 98/100\n'
+        'Summary: No summary available\n'
+        'View Tx: https://etherscan.io/tx/0xabc<bad>&hash'
     )
 
 
@@ -91,10 +104,11 @@ async def test_telegram_send_retries_without_parse_mode_after_html_400(monkeypat
     assert posts[0]["json"]["parse_mode"] == "HTML"
     assert "parse_mode" not in posts[1]["json"]
     assert posts[1]["json"]["text"] == (
-        "🚨 New Risk Alert 🚨\n"
+        "🔴 [CRITICAL THREAT]\n"
         "Protocol: Uniswap V3\n"
-        "Score: 72\n"
-        "TX: 0xabc"
+        "Risk Score: 72/100\n"
+        "Summary: No summary available\n"
+        "View Tx: https://etherscan.io/tx/0xabc"
     )
 
 

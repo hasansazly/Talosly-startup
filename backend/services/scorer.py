@@ -72,6 +72,14 @@ def value_as_eth(value: Any) -> float:
     return 0
 
 
+def get_severity(score: int) -> str:
+    if score >= 70:
+        return "CRITICAL"
+    if score >= 40:
+        return "WARNING"
+    return "INFO"
+
+
 class TransactionScorer:
     """Talosly OpenAI-powered risk scoring service."""
 
