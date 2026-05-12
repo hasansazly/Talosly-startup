@@ -101,6 +101,8 @@ class TaloslyWorker:
                 if sent:
                     await db.mark_telegram_sent(alert_id)
                     logger.info("alert.telegram.sent", alert_id=alert_id)
+                elif getattr(self.telegram, "last_send_suppressed", False):
+                    logger.info("alert.telegram.suppressed", alert_id=alert_id)
                 else:
                     logger.warning("alert.telegram.failed", alert_id=alert_id)
         self.last_seen_blocks[address] = to_block

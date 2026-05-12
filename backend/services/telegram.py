@@ -1,10 +1,12 @@
 import html
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 import httpx
 
+from backend import database as db
 from backend.config import settings
 from backend.services.scorer import get_severity
 
@@ -13,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 class TelegramService:
     """Talosly Telegram notification service."""
+
+    def __init__(self) -> None:
+        self.last_send_suppressed = False
 
     async def send_message(self, text: str, chat_id: str | None = None) -> bool:
         target_chat_id = chat_id or settings.telegram_chat_id
@@ -42,8 +47,16 @@ class TelegramService:
             return False
 
     async def send_alert(self, protocol: dict[str, Any], transaction: dict[str, Any], score_result: Any) -> bool:
+        self.last_send_suppressed = False
         if not settings.telegram_bot_token or not settings.telegram_chat_id:
             logger.info("Talosly Telegram credentials are not configured")
+            return False
+        risk_score = self._get_risk_score(score_result)
+        severity = get_severity(risk_score)
+        protocol_address = str(protocol.get("address") or "")
+        if not await self.should_send_alert(protocol_address, severity):
+            self.last_send_suppressed = True
+            logger.info("Talosly Telegram alert suppressed by dedupe window")
             return False
         message = self._format_message(protocol, transaction, score_result)
         url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
@@ -79,10 +92,49 @@ class TelegramService:
             logger.warning("Talosly Telegram send failed: %s", exc.__class__.__name__)
             return False
 
+    async def should_send_alert(self, protocol_address: str, severity: str) -> bool:
+        """Return True when a Telegram notification should be sent for this protocol."""
+        if not protocol_address:
+            return True
+        try:
+            pool = await db.get_pool()
+            row = await pool.fetchrow(
+                """
+                SELECT alerts.created_at, alerts.risk_score
+                FROM alerts
+                JOIN transactions ON transactions.id = alerts.transaction_id
+                JOIN protocols ON protocols.id = transactions.protocol_id
+                WHERE LOWER(protocols.address) = LOWER($1)
+                  AND alerts.telegram_sent = TRUE
+                ORDER BY alerts.created_at DESC
+                LIMIT 1
+                """,
+                protocol_address,
+            )
+        except Exception as exc:
+            logger.warning("Talosly Telegram dedupe check failed: %s", exc.__class__.__name__)
+            return True
+
+        if not row:
+            return True
+
+        created_at = row["created_at"]
+        if created_at.tzinfo is not None:
+            created_at = created_at.replace(tzinfo=None)
+        if (datetime.utcnow() - created_at).total_seconds() > 300:
+            return True
+
+        previous_severity = get_severity(int(row["risk_score"] or 0))
+        if previous_severity == "CRITICAL":
+            return False
+        if previous_severity == "WARNING" and severity != "CRITICAL":
+            return False
+        return True
+
     def _format_message(self, protocol: dict[str, Any], transaction: dict[str, Any], score_result: Any) -> str:
-        risk_score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
+        risk_score = self._get_risk_score(score_result)
         risk_summary = getattr(score_result, "risk_summary", None) if not isinstance(score_result, dict) else score_result.get("risk_summary")
-        severity = get_severity(int(risk_score or 0))
+        severity = get_severity(risk_score)
         icons = {
             "CRITICAL": "🔴 <b>[CRITICAL THREAT]</b>",
             "WARNING": "🟡 <b>[WARNING]</b>",
@@ -101,6 +153,10 @@ class TelegramService:
             f"<b>View Tx:</b> {tx_url}"
         )
         return msg
+
+    def _get_risk_score(self, score_result: Any) -> int:
+        risk_score = getattr(score_result, "risk_score", None) if not isinstance(score_result, dict) else score_result.get("risk_score")
+        return int(risk_score or 0)
 
     def _format_plain_message(self, message: str) -> str:
         return html.unescape(re.sub(r"</?[^>]+>", "", message))

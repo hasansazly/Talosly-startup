@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 import pytest
 
 from backend.config import settings
@@ -49,6 +51,73 @@ def test_telegram_message_uses_warning_visual_for_medium_score():
     message = service._format_message({"name": "Aave"}, {"tx_hash": "0xabc"}, {"risk_score": 45})
 
     assert message.startswith("🟡 <b>[WARNING]</b>")
+
+
+@pytest.mark.asyncio
+async def test_should_send_alert_suppresses_recent_critical(monkeypatch):
+    class FakePool:
+        async def fetchrow(self, _query, _protocol_address):
+            return {"created_at": datetime.utcnow() - timedelta(minutes=2), "risk_score": 98}
+
+    async def fake_get_pool():
+        return FakePool()
+
+    monkeypatch.setattr("backend.services.telegram.db.get_pool", fake_get_pool)
+
+    assert await TelegramService().should_send_alert("0xprotocol", "CRITICAL") is False
+
+
+@pytest.mark.asyncio
+async def test_should_send_alert_allows_warning_to_critical_escalation(monkeypatch):
+    class FakePool:
+        async def fetchrow(self, _query, _protocol_address):
+            return {"created_at": datetime.utcnow() - timedelta(minutes=2), "risk_score": 45}
+
+    async def fake_get_pool():
+        return FakePool()
+
+    monkeypatch.setattr("backend.services.telegram.db.get_pool", fake_get_pool)
+
+    assert await TelegramService().should_send_alert("0xprotocol", "CRITICAL") is True
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_suppressed_by_dedupe_does_not_post(monkeypatch):
+    posts = []
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return None
+
+        async def post(self, url, json):
+            posts.append({"url": url, "json": json})
+            raise AssertionError("Telegram should not be called when deduped")
+
+    async def fake_should_send_alert(_protocol_address, _severity):
+        return False
+
+    monkeypatch.setattr(settings, "telegram_bot_token", "test-token")
+    monkeypatch.setattr(settings, "telegram_chat_id", "123")
+    monkeypatch.setattr("backend.services.telegram.httpx.AsyncClient", FakeClient)
+
+    service = TelegramService()
+    monkeypatch.setattr(service, "should_send_alert", fake_should_send_alert)
+
+    result = await service.send_alert(
+        {"name": "Uniswap V3", "address": "0xprotocol"},
+        {"tx_hash": "0xabc"},
+        {"risk_score": 98},
+    )
+
+    assert result is False
+    assert service.last_send_suppressed is True
+    assert posts == []
 
 
 def test_telegram_plain_message_removes_html_tags_and_unescapes_values():
