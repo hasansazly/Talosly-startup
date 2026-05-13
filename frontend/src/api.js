@@ -45,6 +45,7 @@ async function unwrap(request) {
 export const getHealth = () => unwrap(api.get('/api/health'));
 export const getStats = () => unwrap(api.get('/api/stats'));
 export const getDemoTransactions = () => unwrap(api.get('/api/demo/transactions'));
+export const runDemoReplay = (txHash) => unwrap(api.post('/api/demo/replay', { tx_hash: txHash }));
 export const applyWaitlist = (payload) => unwrap(api.post('/api/waitlist/apply', payload));
 export const getProtocols = () => unwrap(api.get('/api/protocols', { headers: authHeaders() }));
 export const addProtocol = (payload) => unwrap(api.post('/api/protocols', payload, { headers: authHeaders() }));
