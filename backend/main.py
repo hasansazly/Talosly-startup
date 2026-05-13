@@ -4,6 +4,7 @@ FastAPI Backend
 """
 
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parents[1]
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
+TX_HASH_RE = re.compile(r"^0x[a-fA-F0-9]{64}$")
 EULER_REPLAY_HASH = "0xc310a0affe2169d1f6feec1c63dbc7f7c62a887fa48795d327d4d2da2d6b111d"
 GEMINI_EULER_HASH = "0x37115913ef9c7736369c00b263b9f485e94b283b05810ec4e4e9411985390748"
 DEFAULT_REPLAY_PROTOCOL = {
@@ -150,6 +152,16 @@ def _score_to_dict(result: Any) -> dict[str, Any]:
 
 
 async def _fetch_replay_transaction(tx_hash: str) -> dict[str, Any]:
+    if not TX_HASH_RE.match(tx_hash):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Invalid Ethereum transaction hash",
+                "detail": "Use a full 66-character transaction hash: 0x plus 64 hex characters.",
+                "tx_hash": tx_hash,
+            },
+        )
+
     rpc = EthereumRPCClient()
     try:
         raw_tx = await rpc._call("eth_getTransactionByHash", [tx_hash])

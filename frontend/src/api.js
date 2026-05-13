@@ -38,7 +38,11 @@ async function unwrap(request) {
     return response.data;
   } catch (error) {
     const detail = error.response?.data?.detail || error.message;
-    throw new Error(typeof detail === 'string' ? detail : detail.error || 'Talosly request failed');
+    if (typeof detail === 'string') {
+      throw new Error(detail);
+    }
+    const message = [detail.error, detail.detail].filter(Boolean).join(': ');
+    throw new Error(message || error.response?.data?.error || 'Talosly request failed');
   }
 }
 
