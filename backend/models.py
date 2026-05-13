@@ -38,7 +38,7 @@ class TransactionResponse(BaseModel):
     value_eth: Optional[float]
     risk_score: Optional[int]
     risk_summary: Optional[str]
-    fetched_at: str
+    fetched_at: datetime
 
 
 class AlertResponse(BaseModel):
@@ -50,7 +50,7 @@ class AlertResponse(BaseModel):
     risk_summary: Optional[str]
     telegram_sent: bool
     confirmed_threat: Optional[bool] = None
-    created_at: str
+    created_at: datetime
 
 
 class AlertFeedback(BaseModel):
@@ -86,6 +86,6 @@ class WaitlistResponse(BaseModel):
     goal: Optional[str]
     status: str
     api_key_id: Optional[int]
-    applied_at: str
-    approved_at: Optional[str]
-    reviewed_at: Optional[str]
+    applied_at: datetime
+    approved_at: Optional[datetime]
+    reviewed_at: Optional[datetime]
