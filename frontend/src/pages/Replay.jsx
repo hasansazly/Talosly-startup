@@ -165,8 +165,7 @@ export default function Replay() {
             <div className="panel-label">Scorer path</div>
             <pre>{`if blacklisted(address):
   score = 98
-elif zero_value_call && extreme_gas:
-  score = max(score, 85)
+score += weighted_behavior_points(tx)
 if score >= 70:
   trigger("PROTOCOL_PAUSE_READY")`}</pre>
           </section>

@@ -160,7 +160,7 @@ async def demo_replay(payload: DemoReplayRequest):
         hash_note = "Gemini's pasted hash differs from the Euler replay fixture in this repo; Talosly is using the canonical Euler replay hash."
 
     scorer = TransactionScorer()
-    result = scorer.pre_screen(tx)
+    result = await scorer.score_transaction(tx, EULER_PROTOCOL)
     behavioral_tx = {
         **tx,
         "from_address": "0x0000000000000000000000000000000000000001",
@@ -169,7 +169,7 @@ async def demo_replay(payload: DemoReplayRequest):
     with_blacklist = BLACKLIST.copy()
     BLACKLIST.clear()
     try:
-        behavioral_result = scorer.pre_screen(behavioral_tx)
+        behavioral_result = await scorer.score_transaction(behavioral_tx, EULER_PROTOCOL)
     finally:
         BLACKLIST.clear()
         BLACKLIST.update(with_blacklist)

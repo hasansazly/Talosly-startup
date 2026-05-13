@@ -247,11 +247,14 @@ class TransactionScorer:
             indicators.append("HIGH_VALUE_VAULT")
 
         if gas_used > 2_000_000:
-            score += 35
+            score += 40
             indicators.append("EXTREME_GAS_USAGE")
         elif gas_used > 500_000:
             score += 25
             indicators.append("HIGH_GAS_EXECUTION")
+        elif selector in flash_loan_selectors and gas_used >= 200_000:
+            score += 10
+            indicators.append("MODERATE_GAS_EXECUTION")
 
         if value_eth == 0 and len(input_data) >= 200:
             score += 20
@@ -290,6 +293,10 @@ class TransactionScorer:
             score += 40
             indicators.append("PRICE_IMPACT")
 
+        if selector in flash_loan_selectors and value_eth == 0:
+            score += 15
+            indicators.append("ZERO_VALUE_FLASH_LOAN")
+
         wallet_age_minutes = self._parse_float(transaction.get("wallet_age_minutes"))
         if wallet_age_minutes and wallet_age_minutes <= 10:
             score += 20
@@ -306,29 +313,8 @@ class TransactionScorer:
             or transaction.get("max_reentrant_calls")
         )
         if repeated_calls >= 3:
-            score += 45
+            score += 53
             indicators.append("REENTRANCY_PATTERN")
-
-        if "FLASH_LOAN" in indicators and "EXTREME_GAS_USAGE" in indicators:
-            score = max(score, 85)
-
-        if "ZERO_VALUE_CONTRACT_CALL" in indicators and "EXTREME_GAS_USAGE" in indicators:
-            score = max(score, 85)
-
-        if "PRICE_IMPACT" in indicators and "FLASH_LOAN" in indicators:
-            score = max(score, 92)
-
-        if "ACCESS_CONTROL_CHANGE" in indicators and "UNAUTHORIZED_MINT_SIGNAL" in indicators:
-            score = max(score, 95)
-
-        if "REENTRANCY_PATTERN" in indicators:
-            score = max(score, 88)
-
-        if indicators == ["FLASH_LOAN"]:
-            score = max(score, 40)
-
-        if selector == "863df8af" and "ZERO_VALUE_CONTRACT_CALL" in indicators and "HIGH_GAS_EXECUTION" in indicators:
-            score = max(score, 85)
 
         if score < 40 or not indicators:
             return None
