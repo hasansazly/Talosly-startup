@@ -42,6 +42,7 @@ METHOD_SELECTORS = {
     "863df8af": "donateToReserves",
     "928bc4b2": "process",
     "d450e04c": "verifyHeaderAndExecuteTx",
+    "42d96952": "liquidateWithFlashLoan",
     "40c10f19": "mint",
     "1249c58b": "mint",
     "f2fde38b": "transferOwnership",
@@ -226,6 +227,8 @@ class TransactionScorer:
         indicators: list[str] = []
         score = 0
         method_name = self._method_name(transaction, selector)
+        is_reverted = self._is_reverted(transaction)
+        method_lower = method_name.lower()
 
         flash_loan_selectors = {
             "5cffe9de",
@@ -263,7 +266,7 @@ class TransactionScorer:
             score += 25
             indicators.append("PRIVILEGED_RELAY_PAYLOAD")
 
-        if len(input_data) > 2000:
+        if len(input_data) > 2000 and selector not in flash_loan_selectors:
             score += 15
             indicators.append("CALLDATA_COMPLEXITY")
 
@@ -338,6 +341,10 @@ class TransactionScorer:
             score += 15
             indicators.append("ZERO_VALUE_FLASH_LOAN")
 
+        if any(term in method_lower for term in ("liquidat", "repay")):
+            score += 10
+            indicators.append("LIQUIDATION_FLOW")
+
         wallet_age_minutes = self._parse_float(transaction.get("wallet_age_minutes"))
         if wallet_age_minutes and wallet_age_minutes <= 10:
             score += 20
@@ -357,6 +364,16 @@ class TransactionScorer:
             score += 53
             indicators.append("REENTRANCY_PATTERN")
 
+        if is_reverted:
+            score = max(score - 25, 0)
+            indicators = self._append_ordered_indicator(indicators, "REVERTED_TX")
+
+        if "FLASH_LOAN" in indicators and self._has_only_moderate_flash_loan_signals(indicators):
+            score = min(score, 65)
+
+        if "LIQUIDATION_FLOW" in indicators and not self._has_critical_context(indicators):
+            score = min(score, 65)
+
         if score < 40 or not indicators:
             return None
 
@@ -375,6 +392,38 @@ class TransactionScorer:
 
     def _method_name(self, transaction: dict[str, Any], selector: str) -> str:
         return str(transaction.get("method_name") or transaction.get("method") or METHOD_SELECTORS.get(selector, ""))
+
+    def _is_reverted(self, transaction: dict[str, Any]) -> bool:
+        status = transaction.get("status") or transaction.get("receipt_status")
+        if isinstance(status, str):
+            return status.lower() in {"0x0", "0", "false", "failed", "reverted"}
+        return status in {0, False}
+
+    def _append_ordered_indicator(self, indicators: list[str], indicator: str) -> list[str]:
+        return indicators if indicator in indicators else [*indicators, indicator]
+
+    def _has_only_moderate_flash_loan_signals(self, indicators: list[str]) -> bool:
+        moderate = {
+            "FLASH_LOAN",
+            "ZERO_VALUE_FLASH_LOAN",
+            "MODERATE_GAS_EXECUTION",
+            "LARGE_PAYLOAD_PROBE",
+            "REVERTED_TX",
+        }
+        return set(indicators).issubset(moderate)
+
+    def _has_critical_context(self, indicators: list[str]) -> bool:
+        critical = {
+            "BLACKLISTED_ADDRESS",
+            "BRIDGE_INVARIANT_RISK",
+            "PRIVILEGED_RELAY_PAYLOAD",
+            "PRICE_IMPACT",
+            "AMM_STATE_MISMATCH",
+            "BALANCE_JUMP",
+            "UNAUTHORIZED_MINT_SIGNAL",
+            "REENTRANCY_PATTERN",
+        }
+        return bool(set(indicators) & critical)
 
     def _parse_int(self, value: Any) -> int:
         if value is None:

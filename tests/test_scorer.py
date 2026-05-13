@@ -349,6 +349,63 @@ def test_pre_screen_flags_amm_state_mismatch_with_oracle_context():
     assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "HIGH_GAS_EXECUTION", "PRICE_IMPACT"]
 
 
+def test_pre_screen_damps_reverted_flash_loan_attempts():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x2222222222222222222222222222222222222222",
+            "value_eth": 0,
+            "gas_used": 420_000,
+            "input_data": "0xab9c4b5d" + ("0" * 2400),
+            "status": "0x0",
+        }
+    )
+
+    assert result is not None
+    assert 40 <= result.risk_score <= 65
+    assert "FLASH_LOAN" in result.risk_factors
+
+
+def test_pre_screen_caps_plain_flash_loan_flow_below_critical():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x2222222222222222222222222222222222222222",
+            "value_eth": 0,
+            "gas_used": 420_000,
+            "input_data": "0x5cffe9de" + ("0" * 2400),
+            "status": "0x1",
+        }
+    )
+
+    assert result is not None
+    assert 40 <= result.risk_score <= 65
+    assert "FLASH_LOAN" in result.risk_factors
+
+
+def test_pre_screen_caps_plain_liquidation_flow_below_critical():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x2222222222222222222222222222222222222222",
+            "value_eth": 0,
+            "gas_used": 750_000,
+            "input_data": "0x42d96952" + ("0" * 500),
+            "status": "0x1",
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score == 65
+    assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "HIGH_GAS_EXECUTION", "LARGE_PAYLOAD_PROBE"]
+
+
 def test_pre_screen_ignores_known_safe_router_for_behavioral_rules():
     scorer = TransactionScorer()
     result = scorer.pre_screen(
