@@ -32,8 +32,15 @@ HIGH_VALUE_VAULTS = {
     "0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2",
 }
 
+KNOWN_BRIDGE_CONTRACTS = {
+    # Cross-chain message processors / bridge replicas where forged-message bugs
+    # can look like valid calls unless protocol invariants are checked.
+    "0x5d94309e5a0090b165fa4181519701637b6daeba",
+}
+
 METHOD_SELECTORS = {
     "863df8af": "donateToReserves",
+    "928bc4b2": "process",
     "40c10f19": "mint",
     "1249c58b": "mint",
     "f2fde38b": "transferOwnership",
@@ -46,6 +53,10 @@ KNOWN_SAFE_VAULT_SELECTORS = {
     "617ba037",  # Aave supply/deposit
     "a415bcad",  # Aave borrow
     "1cff79cd",  # Maker vault open
+}
+
+BRIDGE_MESSAGE_SELECTORS = {
+    "928bc4b2",  # process(bytes)
 }
 
 SYSTEM_PROMPT = """
@@ -227,6 +238,18 @@ class TransactionScorer:
             score += 25
             indicators.append("DONATION_PATTERN")
 
+        if selector in BRIDGE_MESSAGE_SELECTORS or method_name.lower() in {"process", "processmessage"}:
+            score += 30
+            indicators.append("CROSS_CHAIN_MESSAGE_PROCESS")
+
+        if to_address in KNOWN_BRIDGE_CONTRACTS:
+            score += 25
+            indicators.append("KNOWN_BRIDGE_CONTRACT")
+
+        if "CROSS_CHAIN_MESSAGE_PROCESS" in indicators and "KNOWN_BRIDGE_CONTRACT" in indicators:
+            score += 20
+            indicators.append("BRIDGE_INVARIANT_RISK")
+
         if len(input_data) > 2000:
             score += 15
             indicators.append("CALLDATA_COMPLEXITY")
@@ -288,10 +311,15 @@ class TransactionScorer:
             self._parse_float(transaction.get("price_impact_pct")),
             self._parse_float(transaction.get("spot_twap_deviation_pct")),
             self._parse_float(transaction.get("price_deviation_pct")),
+            self._parse_float(transaction.get("oracle_deviation_pct")),
         )
         if price_impact > 5:
             score += 40
             indicators.append("PRICE_IMPACT")
+
+        if transaction.get("liquidity_delta_mismatch") or transaction.get("tick_state_mismatch"):
+            score += 45
+            indicators.append("AMM_STATE_MISMATCH")
 
         if selector in flash_loan_selectors and value_eth == 0:
             score += 15

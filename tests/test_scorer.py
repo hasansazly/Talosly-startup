@@ -293,6 +293,44 @@ def test_pre_screen_flags_unauthorized_mint_and_balance_jump():
     assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "UNAUTHORIZED_MINT_SIGNAL", "BALANCE_JUMP"]
 
 
+def test_pre_screen_flags_bridge_message_invariant_risk_without_hash_exception():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x5d94309e5a0090b165fa4181519701637b6daeba",
+            "value_eth": 0,
+            "gas_used": 170_000,
+            "input_data": "0x928bc4b2" + ("0" * 240),
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score == 100
+    assert result.risk_factors == ["CROSS_CHAIN_MESSAGE_PROCESS", "KNOWN_BRIDGE_CONTRACT", "BRIDGE_INVARIANT_RISK"]
+
+
+def test_pre_screen_flags_amm_state_mismatch_with_oracle_context():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x2222222222222222222222222222222222222222",
+            "value_eth": 0,
+            "gas_used": 650_000,
+            "input_data": "0xabcdef01",
+            "liquidity_delta_mismatch": True,
+            "oracle_deviation_pct": 6.2,
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score == 100
+    assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "HIGH_GAS_EXECUTION", "PRICE_IMPACT"]
+
+
 def test_pre_screen_ignores_known_safe_router_for_behavioral_rules():
     scorer = TransactionScorer()
     result = scorer.pre_screen(
