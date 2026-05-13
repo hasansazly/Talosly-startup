@@ -197,16 +197,24 @@ async def demo_replay(payload: DemoReplayRequest):
     return {
         "protocol": EULER_PROTOCOL,
         "transaction": tx,
+        "score": result_payload["risk_score"],
+        "behavior_score": behavioral_payload["risk_score"],
         "result": result_payload,
         "behavioral_result": behavioral_payload,
         "alert": result_payload["risk_score"] >= 70,
         "action": "PROTOCOL_PAUSE_READY" if result_payload["risk_score"] >= 70 else "MONITOR",
         "elapsed_ms": 1840,
         "hash_note": hash_note,
+        "trace": [
+            "Weighted scorer executed",
+            f"Primary score: {result_payload['risk_score']}/100",
+            f"Behavior-only score: {behavioral_payload['risk_score']}/100",
+            "Weights applied to transaction signals",
+        ],
         "stages": [
-            "Transaction loaded from historical replay fixture",
-            "Blacklist and exploit-target checks complete",
-            "Behavioral scan: zero-value contract call plus extreme gas",
+            "Transaction normalized for replay analysis",
+            "Weighted scorer executed against the transaction",
+            "Behavior-only pass ran with blacklist disabled",
             "Critical alert prepared for automatic pause workflow",
         ],
     }
