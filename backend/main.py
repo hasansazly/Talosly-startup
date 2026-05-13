@@ -48,6 +48,7 @@ EULER_PROTOCOL = {
 
 class DemoReplayRequest(BaseModel):
     tx_hash: str | None = None
+    hash: str | None = None
 
 app = FastAPI(
     title="Talosly API",
@@ -57,7 +58,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url, settings.public_url, "http://localhost", "http://localhost:5173"],
+    allow_origins=[
+        settings.frontend_url,
+        settings.public_url,
+        "http://localhost",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -152,7 +159,7 @@ def _score_to_dict(result: Any) -> dict[str, Any]:
 
 @app.post("/api/demo/replay")
 async def demo_replay(payload: DemoReplayRequest):
-    requested_hash = (payload.tx_hash or EULER_REPLAY_HASH).strip()
+    requested_hash = (payload.tx_hash or payload.hash or EULER_REPLAY_HASH).strip()
     tx = {**EULER_REPLAY_TX, "tx_hash": requested_hash or EULER_REPLAY_HASH}
     hash_note = None
     if requested_hash.lower() == GEMINI_EULER_HASH.lower():
