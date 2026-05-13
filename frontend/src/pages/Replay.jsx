@@ -135,9 +135,9 @@ export default function Replay() {
             <h2>Detection logic</h2>
             <ol className="stage-list">
               {(result?.stages || [
-                'Transaction loaded from historical replay fixture',
-                'Blacklist and exploit-target checks complete',
-                'Behavioral scan: zero-value contract call plus extreme gas',
+                'Live RPC transaction fetched',
+                'Weighted scorer executed against the transaction',
+                'Behavior-only pass ran with blacklist disabled',
                 'Critical alert prepared for automatic pause workflow',
               ]).map((stage, index) => (
                 <li className={index <= activeStage ? 'active' : ''} key={stage}>

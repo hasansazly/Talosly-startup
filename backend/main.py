@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -23,6 +23,7 @@ from backend.routers.waitlist import admin_router, router as waitlist_router
 from backend.services.blacklist import BLACKLIST
 from backend.services.logger import logger as structured_logger
 from backend.services.metrics import public_stats as get_public_stats
+from backend.services.rpc import EthereumRPCClient
 from backend.services.scorer import TransactionScorer
 
 logging.basicConfig(level=logging.INFO)
@@ -31,16 +32,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 EULER_REPLAY_HASH = "0xc310a0affe2169d1f6feec1c63dbc7f7c62a887fa48795d327d4d2da2d6b111d"
 GEMINI_EULER_HASH = "0x37115913ef9c7736369c00b263b9f485e94b283b05810ec4e4e9411985390748"
-EULER_REPLAY_TX = {
-    "tx_hash": EULER_REPLAY_HASH,
-    "from_address": "0xb66cd966670d962c227b3eaba30a872dbfb995db",
-    "to_address": "0xebc29199c817dc47ba12e3f86102564d640cbf99",
-    "value_eth": 0,
-    "gas_used": 6_211_412,
-    "input_data": "0x863df8af",
-    "block_number": 16_817_996,
-}
-EULER_PROTOCOL = {
+DEFAULT_REPLAY_PROTOCOL = {
     "name": "Euler Finance",
     "address": "0xebc29199c817dc47ba12e3f86102564d640cbf99",
 }
@@ -157,26 +149,54 @@ def _score_to_dict(result: Any) -> dict[str, Any]:
     }
 
 
+async def _fetch_replay_transaction(tx_hash: str) -> dict[str, Any]:
+    rpc = EthereumRPCClient()
+    try:
+        raw_tx = await rpc._call("eth_getTransactionByHash", [tx_hash])
+        if not raw_tx:
+            raise HTTPException(status_code=404, detail={"error": "Transaction not found", "tx_hash": tx_hash})
+        receipt = await rpc.get_transaction_receipt(tx_hash)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        structured_logger.warning("api.demo_replay.rpc_failed", error=str(exc), tx_hash=tx_hash[:18])
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "RPC fetch failed",
+                "detail": "Talosly could not fetch live transaction data from the configured Ethereum RPC.",
+            },
+        ) from exc
+
+    tx = rpc.parse_transaction(raw_tx, receipt)
+    tx["input_data"] = raw_tx.get("input") or tx.get("input_data") or ""
+    return tx
+
+
 @app.post("/api/demo/replay")
 async def demo_replay(payload: DemoReplayRequest):
     requested_hash = (payload.tx_hash or payload.hash or EULER_REPLAY_HASH).strip()
-    tx = {**EULER_REPLAY_TX, "tx_hash": requested_hash or EULER_REPLAY_HASH}
     hash_note = None
     if requested_hash.lower() == GEMINI_EULER_HASH.lower():
-        tx["tx_hash"] = EULER_REPLAY_HASH
-        hash_note = "Gemini's pasted hash differs from the Euler replay fixture in this repo; Talosly is using the canonical Euler replay hash."
+        requested_hash = EULER_REPLAY_HASH
+        hash_note = "Gemini's pasted hash differs from the canonical Euler transaction; Talosly fetched the canonical Euler hash from RPC."
+
+    tx = await _fetch_replay_transaction(requested_hash or EULER_REPLAY_HASH)
+    protocol = {
+        "name": DEFAULT_REPLAY_PROTOCOL["name"] if tx.get("tx_hash", "").lower() == EULER_REPLAY_HASH else "Live Replay Target",
+        "address": tx.get("to_address") or DEFAULT_REPLAY_PROTOCOL["address"],
+    }
 
     scorer = TransactionScorer()
-    result = await scorer.score_transaction(tx, EULER_PROTOCOL)
+    result = await scorer.score_transaction(tx, protocol)
     behavioral_tx = {
         **tx,
         "from_address": "0x0000000000000000000000000000000000000001",
-        "to_address": "0xebc29199c817dc47ba12e3f86102564d640cbf99",
     }
     with_blacklist = BLACKLIST.copy()
     BLACKLIST.clear()
     try:
-        behavioral_result = await scorer.score_transaction(behavioral_tx, EULER_PROTOCOL)
+        behavioral_result = await scorer.score_transaction(behavioral_tx, protocol)
     finally:
         BLACKLIST.clear()
         BLACKLIST.update(with_blacklist)
@@ -195,7 +215,7 @@ async def demo_replay(payload: DemoReplayRequest):
     }
 
     return {
-        "protocol": EULER_PROTOCOL,
+        "protocol": protocol,
         "transaction": tx,
         "score": result_payload["risk_score"],
         "behavior_score": behavioral_payload["risk_score"],
@@ -206,13 +226,13 @@ async def demo_replay(payload: DemoReplayRequest):
         "elapsed_ms": 1840,
         "hash_note": hash_note,
         "trace": [
-            "Weighted scorer executed",
+            "Live RPC data fetched",
             f"Primary score: {result_payload['risk_score']}/100",
             f"Behavior-only score: {behavioral_payload['risk_score']}/100",
             "Weights applied to transaction signals",
         ],
         "stages": [
-            "Transaction normalized for replay analysis",
+            "Live RPC transaction fetched",
             "Weighted scorer executed against the transaction",
             "Behavior-only pass ran with blacklist disabled",
             "Critical alert prepared for automatic pause workflow",
