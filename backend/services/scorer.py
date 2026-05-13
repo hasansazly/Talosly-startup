@@ -22,6 +22,32 @@ KNOWN_SAFE_ADDRESSES = {
     "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f",
 }
 
+HIGH_VALUE_VAULTS = {
+    # Euler eToken / exploit-path contracts used in replay fixtures.
+    "0xebc29199c817dc47ba12e3f86102564d640cbf99",
+    "0x27182842e098f60e3d576794a5bffb0777e025d3",
+    # Common DeFi vaults / lending pools where abnormal asset flow matters.
+    "0xba12222222228d8ba445958a75a0704d566bf2c8",
+    "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2",
+    "0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2",
+}
+
+METHOD_SELECTORS = {
+    "863df8af": "donateToReserves",
+    "40c10f19": "mint",
+    "1249c58b": "mint",
+    "f2fde38b": "transferOwnership",
+    "3659cfe6": "upgradeTo",
+    "4f1ef286": "upgradeToAndCall",
+}
+
+KNOWN_SAFE_VAULT_SELECTORS = {
+    "573ade81",  # Aave repay
+    "617ba037",  # Aave supply/deposit
+    "a415bcad",  # Aave borrow
+    "1cff79cd",  # Maker vault open
+}
+
 SYSTEM_PROMPT = """
 You are a DeFi security expert analyzing Ethereum transactions.
 
@@ -135,7 +161,11 @@ class TransactionScorer:
         if to_address in KNOWN_SAFE_ADDRESSES:
             return None
 
+        if to_address in HIGH_VALUE_VAULTS and selector in KNOWN_SAFE_VAULT_SELECTORS:
+            return None
+
         behavior_result = self._detect_exploit_behavior(
+            transaction=transaction,
             tx_hash=tx_hash,
             to_address=to_address,
             value_eth=value_eth,
@@ -169,6 +199,7 @@ class TransactionScorer:
     def _detect_exploit_behavior(
         self,
         *,
+        transaction: dict[str, Any],
         tx_hash: str,
         to_address: str | None,
         value_eth: float,
@@ -178,6 +209,7 @@ class TransactionScorer:
     ) -> RiskScoreResponse | None:
         indicators: list[str] = []
         score = 0
+        method_name = self._method_name(transaction, selector)
 
         flash_loan_selectors = {
             "5cffe9de",
@@ -188,8 +220,16 @@ class TransactionScorer:
             "61461954",
         }
         if selector in flash_loan_selectors:
-            score += 45
-            indicators.append("FLASH_LOAN_SELECTOR")
+            score += 30
+            indicators.append("FLASH_LOAN")
+
+        if "donate" in method_name.lower():
+            score += 25
+            indicators.append("DONATION_PATTERN")
+
+        if len(input_data) > 2000:
+            score += 15
+            indicators.append("CALLDATA_COMPLEXITY")
 
         common_token_selectors = {"23b872dd"}
         if (
@@ -201,6 +241,10 @@ class TransactionScorer:
         ):
             score += 35
             indicators.append("ZERO_VALUE_CONTRACT_CALL")
+
+        if to_address in HIGH_VALUE_VAULTS:
+            score += 20
+            indicators.append("HIGH_VALUE_VAULT")
 
         if gas_used > 2_000_000:
             score += 35
@@ -225,15 +269,63 @@ class TransactionScorer:
             score += 55
             indicators.append("PROXY_UPGRADE")
 
+        if selector in {"f2fde38b", "79ba5097"} or "transferownership" in method_name.lower():
+            score += 55
+            indicators.append("ACCESS_CONTROL_CHANGE")
+
+        if selector in {"40c10f19", "1249c58b"} or method_name.lower() == "mint":
+            score += 55
+            indicators.append("UNAUTHORIZED_MINT_SIGNAL")
+
         if value_eth > 100 and selector:
             score += 40
             indicators.append("LARGE_VALUE_TRANSACTION")
 
-        if "FLASH_LOAN_SELECTOR" in indicators and "EXTREME_GAS_USAGE" in indicators:
+        price_impact = max(
+            self._parse_float(transaction.get("price_impact_pct")),
+            self._parse_float(transaction.get("spot_twap_deviation_pct")),
+            self._parse_float(transaction.get("price_deviation_pct")),
+        )
+        if price_impact > 5:
+            score += 40
+            indicators.append("PRICE_IMPACT")
+
+        wallet_age_minutes = self._parse_float(transaction.get("wallet_age_minutes"))
+        if wallet_age_minutes and wallet_age_minutes <= 10:
+            score += 20
+            indicators.append("BRAND_NEW_WALLET")
+
+        balance_change_usd = self._balance_change_usd(transaction)
+        if balance_change_usd >= 1_000_000:
+            score += 50
+            indicators.append("BALANCE_JUMP")
+
+        repeated_calls = self._parse_int(
+            transaction.get("same_contract_call_count")
+            or transaction.get("repeated_contract_calls")
+            or transaction.get("max_reentrant_calls")
+        )
+        if repeated_calls >= 3:
+            score += 45
+            indicators.append("REENTRANCY_PATTERN")
+
+        if "FLASH_LOAN" in indicators and "EXTREME_GAS_USAGE" in indicators:
             score = max(score, 85)
 
         if "ZERO_VALUE_CONTRACT_CALL" in indicators and "EXTREME_GAS_USAGE" in indicators:
             score = max(score, 85)
+
+        if "PRICE_IMPACT" in indicators and "FLASH_LOAN" in indicators:
+            score = max(score, 92)
+
+        if "ACCESS_CONTROL_CHANGE" in indicators and "UNAUTHORIZED_MINT_SIGNAL" in indicators:
+            score = max(score, 95)
+
+        if "REENTRANCY_PATTERN" in indicators:
+            score = max(score, 88)
+
+        if indicators == ["FLASH_LOAN"]:
+            score = max(score, 40)
 
         if selector == "863df8af" and "ZERO_VALUE_CONTRACT_CALL" in indicators and "HIGH_GAS_EXECUTION" in indicators:
             score = max(score, 85)
@@ -243,7 +335,7 @@ class TransactionScorer:
 
         return RiskScoreResponse(
             tx_hash=tx_hash,
-            risk_score=min(score, 98),
+            risk_score=min(score, 100),
             risk_summary=f"Exploit behavior detected: {', '.join(indicators[:2]).replace('_', ' ').lower()}",
             risk_factors=indicators[:3],
         )
@@ -253,6 +345,9 @@ class TransactionScorer:
         if clean.startswith("0x"):
             clean = clean[2:]
         return clean[:8]
+
+    def _method_name(self, transaction: dict[str, Any], selector: str) -> str:
+        return str(transaction.get("method_name") or transaction.get("method") or METHOD_SELECTORS.get(selector, ""))
 
     def _parse_int(self, value: Any) -> int:
         if value is None:
@@ -267,6 +362,27 @@ class TransactionScorer:
             except ValueError:
                 return 0
         return 0
+
+    def _parse_float(self, value: Any) -> float:
+        if value is None or isinstance(value, bool):
+            return 0
+        if isinstance(value, int | float):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.rstrip("%"))
+            except ValueError:
+                return 0
+        return 0
+
+    def _balance_change_usd(self, transaction: dict[str, Any]) -> float:
+        direct_change = self._parse_float(transaction.get("attacker_balance_change_usd") or transaction.get("balance_change_usd"))
+        if direct_change:
+            return direct_change
+
+        before = self._parse_float(transaction.get("attacker_balance_before_usd"))
+        after = self._parse_float(transaction.get("attacker_balance_after_usd"))
+        return max(after - before, 0)
 
     async def score_transaction(self, transaction: dict[str, Any], protocol: dict[str, Any]) -> RiskScoreResponse:
         # Pre-screen before calling OpenAI, and before checking OpenAI config.

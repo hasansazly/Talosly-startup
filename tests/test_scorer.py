@@ -232,7 +232,65 @@ def test_pre_screen_flags_euler_style_behavior_without_blacklist():
 
     assert result is not None
     assert result.risk_score >= 85
-    assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "EXTREME_GAS_USAGE"]
+    assert result.risk_factors == ["DONATION_PATTERN", "ZERO_VALUE_CONTRACT_CALL", "HIGH_VALUE_VAULT"]
+
+
+def test_pre_screen_uses_contextual_price_impact_for_oracle_manipulation():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x2222222222222222222222222222222222222222",
+            "value_eth": 0,
+            "gas_used": 800_000,
+            "input_data": "0x5cffe9de",
+            "price_impact_pct": 7.5,
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score >= 92
+    assert result.risk_factors == ["FLASH_LOAN", "HIGH_GAS_EXECUTION", "PRICE_IMPACT"]
+
+
+def test_pre_screen_flags_reentrancy_pattern_with_distinct_score():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x2222222222222222222222222222222222222222",
+            "value_eth": 0,
+            "gas_used": 120_000,
+            "input_data": "0x12345678",
+            "same_contract_call_count": 4,
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score == 88
+    assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "REENTRANCY_PATTERN"]
+
+
+def test_pre_screen_flags_unauthorized_mint_and_balance_jump():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x2222222222222222222222222222222222222222",
+            "value_eth": 0,
+            "gas_used": 200_000,
+            "input_data": "0x40c10f19",
+            "attacker_balance_before_usd": 0,
+            "attacker_balance_after_usd": 1_250_000,
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score == 100
+    assert result.risk_factors == ["ZERO_VALUE_CONTRACT_CALL", "UNAUTHORIZED_MINT_SIGNAL", "BALANCE_JUMP"]
 
 
 def test_pre_screen_ignores_known_safe_router_for_behavioral_rules():
