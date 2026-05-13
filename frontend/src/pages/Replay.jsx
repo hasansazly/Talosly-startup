@@ -22,8 +22,10 @@ export default function Replay() {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState('');
 
-  const riskScore = result?.result?.risk_score || 0;
-  const behavioralScore = result?.behavioral_result?.risk_score || 0;
+  const traceSteps = result?.trace || [];
+  const riskScore = result?.score ?? result?.result?.risk_score ?? 0;
+  const behavioralScore = result?.behavior_score ?? result?.behavioral_result?.risk_score ?? 0;
+  const riskFactors = result?.factors || result?.behavioral_result?.risk_factors || result?.result?.risk_factors || [];
   const isCritical = riskScore >= 70;
 
   const scoreStyle = useMemo(() => ({
@@ -42,10 +44,11 @@ export default function Replay() {
   useEffect(() => {
     if (!isRunning || !result) return undefined;
     setActiveStage(-1);
-    const timers = result.stages.map((_, index) => (
+    const steps = result.trace || result.stages || [];
+    const timers = steps.map((_, index) => (
       setTimeout(() => setActiveStage(index), 420 + index * 420)
     ));
-    const done = setTimeout(() => setIsRunning(false), 420 + result.stages.length * 420);
+    const done = setTimeout(() => setIsRunning(false), 420 + steps.length * 420);
     return () => {
       timers.forEach(clearTimeout);
       clearTimeout(done);
@@ -134,11 +137,11 @@ export default function Replay() {
             <div className="panel-label">AI Brain trace</div>
             <h2>Detection logic</h2>
             <ol className="stage-list">
-              {(result?.stages || [
-                'Live RPC transaction fetched',
-                'Weighted scorer executed against the transaction',
-                'Behavior-only pass ran with blacklist disabled',
-                'Critical alert prepared for automatic pause workflow',
+              {(traceSteps.length ? traceSteps : [
+                'Waiting for live RPC transaction',
+                'Weighted scorer ready',
+                'Behavior-only score pending',
+                'Protocol response pending',
               ]).map((stage, index) => (
                 <li className={index <= activeStage ? 'active' : ''} key={stage}>
                   <span>{String(index + 1).padStart(2, '0')}</span>
@@ -151,13 +154,13 @@ export default function Replay() {
           <section className="panel factors-panel">
             <div className="panel-label">Risk factors</div>
             <div className="factor-stack">
-              {(result?.result?.risk_factors || ['BLACKLISTED_ADDRESS']).map((factor) => (
+              {(riskFactors.length ? riskFactors : ['AWAITING_ANALYSIS']).map((factor) => (
                 <span key={factor}>{factorLabel(factor)}</span>
               ))}
             </div>
             <div className="behavior-score">
               <span>Behavior-only score</span>
-              <strong>{behavioralScore || 85}/100</strong>
+              <strong>{behavioralScore}/100</strong>
             </div>
           </section>
 
