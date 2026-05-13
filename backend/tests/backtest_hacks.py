@@ -11,6 +11,7 @@ before app code is imported.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import sys
@@ -76,6 +77,7 @@ except ImportError as exc:
 
 @dataclass(frozen=True)
 class BacktestCase:
+    preset: str
     name: str
     description: str
     tx_data: dict[str, Any]
@@ -86,6 +88,7 @@ class BacktestCase:
 
 HISTORICAL_HACKS: list[BacktestCase] = [
     BacktestCase(
+        preset="venus",
         name="Venus Protocol - Donation Attack (March 2026)",
         description=(
             "Attacker donated tokens directly to the Venus vToken contract, "
@@ -110,6 +113,7 @@ HISTORICAL_HACKS: list[BacktestCase] = [
         },
     ),
     BacktestCase(
+        preset="euler",
         name="Euler Finance - Flash Loan Attack (March 2023)",
         description=(
             "Attacker used a flash loan from Aave to exploit a flaw in Euler's "
@@ -131,6 +135,8 @@ HISTORICAL_HACKS: list[BacktestCase] = [
         verify_behavior_without_blacklist=True,
     ),
 ]
+
+PRESETS: tuple[str, ...] = ("all", *(case.preset for case in HISTORICAL_HACKS))
 
 PASS = "\033[92mPASS\033[0m"
 FAIL = "\033[91mFAIL\033[0m"
@@ -227,15 +233,36 @@ async def run_behavior_probe(case: BacktestCase, scorer: TransactionScorer) -> b
     return False
 
 
-async def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Talosly historical hack backtester")
+    parser.add_argument(
+        "--preset",
+        default="all",
+        choices=PRESETS,
+        help="Backtest preset to run.",
+    )
+    return parser.parse_args(argv)
+
+
+def select_cases(preset: str) -> list[BacktestCase]:
+    if preset == "all":
+        return list(HISTORICAL_HACKS)
+    return [case for case in HISTORICAL_HACKS if case.preset == preset]
+
+
+async def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    cases = select_cases(args.preset)
+
     print(f"\n{'=' * 60}")
     print(f"{BOLD}Talosly - Historical Hack Backtester{RESET}")
     print("Running in SAFE mode: no DB writes, no Telegram alerts")
+    print(f"Preset: {args.preset}")
     print(f"{'=' * 60}")
 
     scorer = TransactionScorer()
     results: list[tuple[str, bool]] = []
-    for case in HISTORICAL_HACKS:
+    for case in cases:
         results.append((case.name, await run_backtest(case, scorer)))
 
     total = len(results)
