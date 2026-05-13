@@ -311,6 +311,24 @@ def test_pre_screen_flags_bridge_message_invariant_risk_without_hash_exception()
     assert result.risk_factors == ["CROSS_CHAIN_MESSAGE_PROCESS", "KNOWN_BRIDGE_CONTRACT", "BRIDGE_INVARIANT_RISK"]
 
 
+def test_pre_screen_flags_cross_chain_relay_privilege_payload_without_hash_exception():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x1111111111111111111111111111111111111111",
+            "to_address": "0x2222222222222222222222222222222222222222",
+            "value_eth": 0,
+            "gas_used": 140_000,
+            "input_data": "0xd450e04c" + ("0" * 2200),
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score == 100
+    assert result.risk_factors == ["CROSS_CHAIN_RELAY_EXECUTION", "PRIVILEGED_RELAY_PAYLOAD", "CALLDATA_COMPLEXITY"]
+
+
 def test_pre_screen_flags_amm_state_mismatch_with_oracle_context():
     scorer = TransactionScorer()
     result = scorer.pre_screen(

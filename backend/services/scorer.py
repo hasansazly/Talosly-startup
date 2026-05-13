@@ -41,6 +41,7 @@ KNOWN_BRIDGE_CONTRACTS = {
 METHOD_SELECTORS = {
     "863df8af": "donateToReserves",
     "928bc4b2": "process",
+    "d450e04c": "verifyHeaderAndExecuteTx",
     "40c10f19": "mint",
     "1249c58b": "mint",
     "f2fde38b": "transferOwnership",
@@ -57,6 +58,10 @@ KNOWN_SAFE_VAULT_SELECTORS = {
 
 BRIDGE_MESSAGE_SELECTORS = {
     "928bc4b2",  # process(bytes)
+}
+
+CROSS_CHAIN_RELAY_SELECTORS = {
+    "d450e04c",  # verifyHeaderAndExecuteTx(...)
 }
 
 SYSTEM_PROMPT = """
@@ -242,6 +247,10 @@ class TransactionScorer:
             score += 30
             indicators.append("CROSS_CHAIN_MESSAGE_PROCESS")
 
+        if selector in CROSS_CHAIN_RELAY_SELECTORS or method_name.lower() == "verifyheaderandexecutetx":
+            score += 30
+            indicators.append("CROSS_CHAIN_RELAY_EXECUTION")
+
         if to_address in KNOWN_BRIDGE_CONTRACTS:
             score += 25
             indicators.append("KNOWN_BRIDGE_CONTRACT")
@@ -249,6 +258,10 @@ class TransactionScorer:
         if "CROSS_CHAIN_MESSAGE_PROCESS" in indicators and "KNOWN_BRIDGE_CONTRACT" in indicators:
             score += 20
             indicators.append("BRIDGE_INVARIANT_RISK")
+
+        if "CROSS_CHAIN_RELAY_EXECUTION" in indicators and len(input_data) > 1000:
+            score += 25
+            indicators.append("PRIVILEGED_RELAY_PAYLOAD")
 
         if len(input_data) > 2000:
             score += 15
