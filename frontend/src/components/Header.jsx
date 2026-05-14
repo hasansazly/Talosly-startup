@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 
-export default function Header({ online, lastUpdated }) {
+export default function Header({ online, lastUpdated, onDemoAlert }) {
   return (
     <header className="topbar">
       <div>
@@ -12,6 +12,7 @@ export default function Header({ online, lastUpdated }) {
         <Link to="/dashboard" className="nav-link">Dashboard</Link>
         <Link to="/replay" className="nav-link">Replay</Link>
         <Link to="/alerts" className="nav-link">Alert History</Link>
+        {onDemoAlert && <button type="button" className="nav-action" onClick={onDemoAlert}>▶ Run Demo Alert</button>}
         <div className="status">
           <span className={`status-dot ${online ? 'online' : ''}`} />
           <span>{online ? 'worker running' : 'offline'}</span>
