@@ -45,3 +45,20 @@ def test_parse_transaction_truncates_input_data():
         }
     )
     assert len(parsed["input_data"]) == 500
+
+
+def test_parse_transaction_preserves_receipt_logs_for_scorer_context():
+    client = EthereumRPCClient()
+    parsed = client.parse_transaction(
+        {
+            "hash": "0xabc",
+            "blockNumber": "0x1",
+            "from": "0xfrom",
+            "to": "0xto",
+            "value": "0x0",
+            "input": "0x1234",
+        },
+        {"gasUsed": "0x5208", "logs": [{"address": "0xlog", "topics": ["0xtopic"], "data": "0x1"}]},
+    )
+
+    assert parsed["logs"] == [{"address": "0xlog", "topics": ["0xtopic"], "data": "0x1"}]

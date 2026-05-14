@@ -36,6 +36,9 @@ KNOWN_BRIDGE_CONTRACTS = {
     # Cross-chain message processors / bridge replicas where forged-message bugs
     # can look like valid calls unless protocol invariants are checked.
     "0x5d94309e5a0090b165fa4181519701637b6daeba",
+    # Nomad ERC20 bridge escrow. Large token releases from bridge escrows are
+    # materially different from ordinary token transfers.
+    "0x88a69b4e698a4b090df6cf5bd7b2d47325ad30a3",
 }
 
 METHOD_SELECTORS = {
@@ -64,6 +67,8 @@ BRIDGE_MESSAGE_SELECTORS = {
 CROSS_CHAIN_RELAY_SELECTORS = {
     "d450e04c",  # verifyHeaderAndExecuteTx(...)
 }
+
+ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 SYSTEM_PROMPT = """
 You are a DeFi security expert analyzing Ethereum transactions.
@@ -157,6 +162,7 @@ class TransactionScorer:
         input_data = transaction.get("input_data", transaction.get("input", "")) or ""
         gas_used = self._parse_int(transaction.get("gas_used", transaction.get("gas", 0)))
         selector = self._function_selector(input_data)
+        bridge_context = self._bridge_context(transaction, input_data)
 
         # High-confidence hits return immediately to save deeper analysis costs.
         if from_address in BLACKLIST or to_address in BLACKLIST:
@@ -189,6 +195,7 @@ class TransactionScorer:
             input_data=input_data,
             gas_used=gas_used,
             selector=selector,
+            bridge_context=bridge_context,
         )
         if behavior_result is not None:
             return behavior_result
@@ -223,6 +230,7 @@ class TransactionScorer:
         input_data: str,
         gas_used: int,
         selector: str,
+        bridge_context: dict[str, bool],
     ) -> RiskScoreResponse | None:
         indicators: list[str] = []
         score = 0
@@ -250,6 +258,10 @@ class TransactionScorer:
             score += 30
             indicators.append("CROSS_CHAIN_MESSAGE_PROCESS")
 
+        if bridge_context["embedded_message_process"]:
+            score += 35
+            indicators.append("EMBEDDED_BRIDGE_MESSAGE")
+
         if selector in CROSS_CHAIN_RELAY_SELECTORS or method_name.lower() == "verifyheaderandexecutetx":
             score += 30
             indicators.append("CROSS_CHAIN_RELAY_EXECUTION")
@@ -258,7 +270,22 @@ class TransactionScorer:
             score += 25
             indicators.append("KNOWN_BRIDGE_CONTRACT")
 
-        if "CROSS_CHAIN_MESSAGE_PROCESS" in indicators and "KNOWN_BRIDGE_CONTRACT" in indicators:
+        if bridge_context["known_bridge_log_emitter"]:
+            score += 25
+            indicators.append("BRIDGE_EVENT_EMITTED")
+
+        if bridge_context["bridge_token_outflow"]:
+            score += 35
+            indicators.append("BRIDGE_TOKEN_OUTFLOW")
+
+        if bridge_context["large_token_transfer"]:
+            score += 20
+            indicators.append("LARGE_TOKEN_TRANSFER")
+
+        if (
+            ("CROSS_CHAIN_MESSAGE_PROCESS" in indicators or "EMBEDDED_BRIDGE_MESSAGE" in indicators)
+            and ("KNOWN_BRIDGE_CONTRACT" in indicators or "BRIDGE_EVENT_EMITTED" in indicators)
+        ):
             score += 20
             indicators.append("BRIDGE_INVARIANT_RISK")
 
@@ -392,6 +419,52 @@ class TransactionScorer:
 
     def _method_name(self, transaction: dict[str, Any], selector: str) -> str:
         return str(transaction.get("method_name") or transaction.get("method") or METHOD_SELECTORS.get(selector, ""))
+
+    def _bridge_context(self, transaction: dict[str, Any], input_data: str) -> dict[str, bool]:
+        clean_input = (input_data or "").lower()
+        clean_input = clean_input[2:] if clean_input.startswith("0x") else clean_input
+        embedded_bridge_address = any(address[2:] in clean_input for address in KNOWN_BRIDGE_CONTRACTS)
+        embedded_bridge_selector = any(selector in clean_input for selector in BRIDGE_MESSAGE_SELECTORS | CROSS_CHAIN_RELAY_SELECTORS)
+
+        known_bridge_log_emitter = False
+        bridge_token_outflow = False
+        large_token_transfer = False
+
+        for log in transaction.get("logs") or []:
+            log_address = norm(log.get("address"))
+            if log_address in KNOWN_BRIDGE_CONTRACTS:
+                known_bridge_log_emitter = True
+
+            topics = [str(topic).lower() for topic in (log.get("topics") or [])]
+            if not topics or topics[0] != ERC20_TRANSFER_TOPIC:
+                continue
+
+            from_address = self._topic_address(topics[1] if len(topics) > 1 else None)
+            to_address = self._topic_address(topics[2] if len(topics) > 2 else None)
+            amount = self._parse_int(log.get("data"))
+
+            if from_address in KNOWN_BRIDGE_CONTRACTS and to_address not in KNOWN_BRIDGE_CONTRACTS:
+                bridge_token_outflow = True
+
+            if amount >= 100_000_000:
+                large_token_transfer = True
+
+        return {
+            "embedded_message_process": embedded_bridge_address and embedded_bridge_selector,
+            "known_bridge_log_emitter": known_bridge_log_emitter,
+            "bridge_token_outflow": bridge_token_outflow,
+            "large_token_transfer": large_token_transfer,
+        }
+
+    def _topic_address(self, topic: str | None) -> str | None:
+        if not topic:
+            return None
+        clean = topic.lower()
+        if clean.startswith("0x"):
+            clean = clean[2:]
+        if len(clean) < 40:
+            return None
+        return f"0x{clean[-40:]}"
 
     def _is_reverted(self, transaction: dict[str, Any]) -> bool:
         status = transaction.get("status") or transaction.get("receipt_status")

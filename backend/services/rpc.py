@@ -57,4 +57,5 @@ class EthereumRPCClient:
             "gas_used": int(gas_used, 16) if isinstance(gas_used, str) else gas_used,
             "input_data": (raw_tx.get("input") or "")[:500],
             "status": receipt.get("status"),
+            "logs": receipt.get("logs") or [],
         }

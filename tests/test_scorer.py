@@ -311,6 +311,46 @@ def test_pre_screen_flags_bridge_message_invariant_risk_without_hash_exception()
     assert result.risk_factors == ["CROSS_CHAIN_MESSAGE_PROCESS", "KNOWN_BRIDGE_CONTRACT", "BRIDGE_INVARIANT_RISK"]
 
 
+def test_pre_screen_flags_routed_bridge_exploit_from_embedded_calldata_and_logs():
+    scorer = TransactionScorer()
+    result = scorer.pre_screen(
+        {
+            "tx_hash": "0xabc",
+            "from_address": "0x56d8b635a7c88fd1104d23d632af40c1c3aac4e3",
+            "to_address": "0xf57113d8f6ff35747737f026fe0b37d4d7f42777",
+            "value_eth": 0,
+            "gas_used": 263_706,
+            "input_data": (
+                "0x37c8f01a"
+                "01f57113d8f6ff35747737f026fe0b37d4d7f42777"
+                "000100055d94309e5a0090b165fa4181519701637b6daeba"
+                "00012444928bc4b2"
+                + ("0" * 240)
+            ),
+            "logs": [
+                {
+                    "address": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+                    "topics": [
+                        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                        "0x00000000000000000000000088a69b4e698a4b090df6cf5bd7b2d47325ad30a3",
+                        "0x000000000000000000000000f57113d8f6ff35747737f026fe0b37d4d7f42777",
+                    ],
+                    "data": "0x00000000000000000000000000000000000000000000000000000002540be400",
+                },
+                {
+                    "address": "0x5d94309e5a0090b165fa4181519701637b6daeba",
+                    "topics": ["0xd42de95a9b26f1be134c8ecce389dc4fcfa18753d01661b7b361233569e8fe48"],
+                    "data": "0x",
+                },
+            ],
+        }
+    )
+
+    assert result is not None
+    assert result.risk_score == 100
+    assert result.risk_factors == ["EMBEDDED_BRIDGE_MESSAGE", "BRIDGE_EVENT_EMITTED", "BRIDGE_TOKEN_OUTFLOW"]
+
+
 def test_pre_screen_flags_cross_chain_relay_privilege_payload_without_hash_exception():
     scorer = TransactionScorer()
     result = scorer.pre_screen(
