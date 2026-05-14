@@ -71,7 +71,7 @@ export default function AlertHistory() {
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan="7" className="empty-row">No high-risk alerts detected across monitored protocols.</td></tr>
+                <tr><td colSpan="7" className="empty-row">No alerts match this range</td></tr>
               ) : filtered.map((alert) => (
                 <tr key={alert.id}>
                   <td>{alert.protocol_name}</td>
