@@ -81,6 +81,7 @@ class TaloslyWorker:
         openai_scored_this_loop = 0
         for raw_tx in raw_txs:
             parsed = self.rpc.parse_transaction(raw_tx)
+            parsed["input_data"] = raw_tx.get("input") or parsed.get("input_data") or ""
             tx_id, is_new = await db.upsert_transaction(protocol["id"], parsed)
             if not is_new:
                 continue
