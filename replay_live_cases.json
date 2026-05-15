@@ -1,0 +1,26 @@
+[
+  {
+    "id": "nomad_bridge_exploit_real",
+    "description": "Nomad bridge exploit routed through bridge message calldata and token logs",
+    "category": "TRUE_POSITIVE_LIVE",
+    "chain": "ethereum",
+    "tx_hash": "0x61497a1a8a8659a06358e130ea590e1eed8956edbd99dbb2048cfb46850a8f17",
+    "protocol_name": "Nomad Bridge",
+    "expected_score_min": 90,
+    "expected_score_max": 100,
+    "expected_factors_any": ["EMBEDDED_BRIDGE_MESSAGE", "BRIDGE_EVENT_EMITTED", "BRIDGE_TOKEN_OUTFLOW"],
+    "notes": "Real RPC replay must preserve receipt logs or this will become a false negative."
+  },
+  {
+    "id": "euler_exploit_real",
+    "description": "Euler Finance exploit transaction",
+    "category": "TRUE_POSITIVE_LIVE",
+    "chain": "ethereum",
+    "tx_hash": "0xc310a0affe2169d1f6feec1c63dbc7f7c62a887fa48795d327d4d2da2d6b111d",
+    "protocol_name": "Euler Finance",
+    "expected_score_min": 90,
+    "expected_score_max": 100,
+    "expected_factors_any": ["BLACKLISTED_ADDRESS", "DONATION_PATTERN", "HIGH_VALUE_VAULT"],
+    "notes": "Canonical Euler replay should remain critical."
+  }
+]
