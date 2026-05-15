@@ -56,35 +56,9 @@ export default function Dashboard() {
     await load();
   }
 
-  function handleDemoAlert() {
-    const timestamp = new Date().toISOString();
-    const demoAlert = {
-      id: `demo-${timestamp}`,
-      demo: true,
-      protocol_name: 'Euler Finance',
-      protocol: 'Euler Finance',
-      tx_hash: '0xc310a0af...demo',
-      txHash: '0xc310a0af...demo',
-      risk_score: 96,
-      riskScore: 96,
-      risk_summary: 'Flash loan + price manipulation + full drain pattern',
-      reason: 'Flash loan + price manipulation + full drain pattern',
-      from_address: '0xb66cd966...attacker',
-      to_address: '0x313ce567...euler_vault',
-      value: '197M DAI',
-      ai_summary: 'This transaction matches the March 2023 Euler Finance exploit pattern. A flash loan was used to manipulate the donateToReserves function, draining ~$197M across multiple assets.',
-      risk_factors: ['Flash loan', 'Price manipulation', 'Full drain pattern'],
-      created_at: timestamp,
-      timestamp,
-    };
-    setAlerts((current) => [demoAlert, ...current]);
-    setLastSignalAt(timestamp);
-    setSelectedAlert(demoAlert);
-  }
-
   return (
     <main className="app-shell">
-      <Header online={online} lastUpdated={lastUpdated} onDemoAlert={handleDemoAlert} />
+      <Header online={online} lastUpdated={lastUpdated} />
       <WorkerStatusBar online={online} lastSignalAt={lastSignalAt} protocolCount={protocols.length} />
       {!savedApiKey && (
         <section className="panel key-panel">
