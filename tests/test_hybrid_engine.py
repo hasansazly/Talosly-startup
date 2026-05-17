@@ -36,6 +36,11 @@ def test_hybrid_engine_skips_gpt_for_low_risk_transaction(tmp_path):
 
 def test_hybrid_engine_returns_oracle_schema_for_spike(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def fail_gpt(*_args, **_kwargs):
+        raise RuntimeError("GPT disabled in test")
+
+    monkeypatch.setattr(HybridScoringEngine, "_call_gpt", fail_gpt)
     engine = HybridScoringEngine(ml_gate_threshold=20, confidence_gate=0)
     tx = {
         **_history()[-1],
