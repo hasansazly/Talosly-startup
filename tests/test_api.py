@@ -25,6 +25,20 @@ def test_admin_endpoint_requires_secret():
     assert response.status_code == 403
 
 
+def test_dotenv_is_never_served_from_static_fallback():
+    response = TestClient(app).get("/.env")
+
+    assert response.status_code == 404
+    assert "OPENAI_API_KEY" not in response.text
+
+
+def test_encoded_dotenv_is_never_served_from_static_fallback():
+    response = TestClient(app).get("/%2Eenv")
+
+    assert response.status_code == 404
+    assert "OPENAI_API_KEY" not in response.text
+
+
 def test_alert_feedback_records_manual_review(monkeypatch):
     recorded = {}
 

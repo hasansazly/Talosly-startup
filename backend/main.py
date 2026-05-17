@@ -31,7 +31,17 @@ from scoring.cost_tracker import CostTracker
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parents[1]
-FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
+PUBLIC_STATIC_DIR = (ROOT_DIR / "frontend" / "dist").resolve()
+FRONTEND_DIST = PUBLIC_STATIC_DIR
+DENIED_STATIC_FILENAMES = {
+    ".env",
+    ".env.example",
+    ".env.local",
+    ".env.production",
+    "docker-compose.yml",
+    "railpack.json",
+    "requirements.txt",
+}
 TX_HASH_RE = re.compile(r"^0x[a-fA-F0-9]{64}$")
 EULER_REPLAY_HASH = "0xc310a0affe2169d1f6feec1c63dbc7f7c62a887fa48795d327d4d2da2d6b111d"
 GEMINI_EULER_HASH = "0x37115913ef9c7736369c00b263b9f485e94b283b05810ec4e4e9411985390748"
@@ -278,6 +288,36 @@ async def head_root():
     return {}
 
 
+def _safe_static_file_path(request_path: str) -> Path | None:
+    """Resolve a public asset path without allowing config files or root escapes."""
+    clean_path = unquote(request_path).lstrip("/")
+    if not clean_path:
+        return None
+
+    parts = Path(clean_path).parts
+    if _is_denied_static_path(parts):
+        return None
+    candidate = (PUBLIC_STATIC_DIR / clean_path).resolve()
+    try:
+        candidate.relative_to(PUBLIC_STATIC_DIR)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+def _is_denied_static_path(parts: tuple[str, ...]) -> bool:
+    """Return True for dotfiles, traversal attempts, or known config filenames."""
+    if not parts:
+        return False
+    return (
+        any(part.startswith(".") for part in parts)
+        or any(part in {"..", ""} for part in parts)
+        or parts[-1] in DENIED_STATIC_FILENAMES
+    )
+
+
 @app.api_route("/{path:path}", methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
 async def api_fallback(path: str, request: Request):
     if not path.startswith("api/"):
@@ -287,12 +327,14 @@ async def api_fallback(path: str, request: Request):
                 status_code=404,
                 content={"error": "Not found", "path": request.scope.get("path", "")},
             )
-        asset_path = (FRONTEND_DIST / path).resolve()
-        if FRONTEND_DIST in asset_path.parents and asset_path.is_file():
-            return FileResponse(asset_path)
-        index_path = FRONTEND_DIST / "index.html"
-        if index_path.exists():
-            return FileResponse(index_path)
+        if request.method in {"GET", "HEAD"}:
+            asset_path = _safe_static_file_path(path)
+            if asset_path is not None:
+                return FileResponse(asset_path)
+            if not _is_denied_static_path(Path(decoded_path).parts):
+                index_path = PUBLIC_STATIC_DIR / "index.html"
+                if index_path.exists():
+                    return FileResponse(index_path)
     return JSONResponse(
         status_code=404,
         content={
