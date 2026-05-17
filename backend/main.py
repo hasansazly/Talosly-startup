@@ -26,6 +26,7 @@ from backend.services.logger import logger as structured_logger
 from backend.services.metrics import public_stats as get_public_stats
 from backend.services.rpc import EthereumRPCClient
 from backend.services.scorer import TransactionScorer
+from scoring.cost_tracker import CostTracker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -133,6 +134,11 @@ async def stats():
             "alerts_fired": 0,
             "uptime_days": 1,
         }
+
+
+@app.get("/internal/cost-report")
+async def cost_report():
+    return CostTracker().report().to_dict()
 
 
 @app.get("/api/demo/transactions")

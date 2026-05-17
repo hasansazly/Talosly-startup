@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     ethereum_rpc_url: str = "https://cloudflare-eth.com"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    gpt_daily_spend_alert_usd: float = 5.00
+    ml_gate_threshold: int = 65
+    ml_confidence_gate: int = 20
+    model_retrain_interval_days: int = 7
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     database_url: str = "postgresql://talosly:talosly_secret@localhost:5432/talosly"
@@ -35,6 +39,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        protected_namespaces = ("settings_",)
 
 
 settings = Settings()
