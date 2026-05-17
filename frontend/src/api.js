@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
+const configuredBase = import.meta.env.VITE_API_URL || '';
+const isLocalApiBase = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(configuredBase);
+const BASE = import.meta.env.DEV
+  ? configuredBase || 'http://localhost:8000'
+  : isLocalApiBase ? '' : configuredBase;
 
 const api = axios.create({ baseURL: BASE });
 let currentApiKey = sessionStorage.getItem('talosly_api_key') || localStorage.getItem('talosly_api_key') || '';
