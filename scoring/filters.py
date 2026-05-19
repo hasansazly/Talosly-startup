@@ -138,3 +138,7 @@ class TransactionPreFilter:
         if clean_input.startswith("0x"):
             clean_input = clean_input[2:]
         return clean_input[:8] if len(clean_input) >= 8 else ""
+
+
+class PreFilterManager(TransactionPreFilter):
+    """Compatibility wrapper for the Layer 1 transaction pre-filter."""

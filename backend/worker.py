@@ -11,6 +11,7 @@ from backend.services.logger import logger
 from backend.services.rpc import EthereumRPCClient
 from backend.services.scorer import TransactionScorer
 from backend.services.telegram import TelegramService
+from scoring.filters import PreFilterManager
 
 
 class TaloslyWorker:
@@ -18,6 +19,7 @@ class TaloslyWorker:
         self.rpc = EthereumRPCClient()
         self.scorer = TransactionScorer()
         self.telegram = TelegramService()
+        self.pre_filter = PreFilterManager()
         self.running = True
         self.last_seen_blocks: dict[str, int] = {}
         self.rpc_backoff_seconds = 0
@@ -115,6 +117,21 @@ class TaloslyWorker:
         if not tx_hash or not protocol:
             return
 
+        tx_data = {
+            "to": tx.get("to"),
+            "from": tx.get("from"),
+            "input": tx.get("input", "0x"),
+            "value": tx.get("value", 0),
+        }
+        should_escalate, filter_reason = self.pre_filter.should_evaluate(tx_data)
+        if not should_escalate:
+            logger.info(
+                "mempool.transaction.prefilter.pass",
+                tx_hash=tx_hash[:18],
+                reason=filter_reason,
+            )
+            return
+
         logger.info(
             "mempool.transaction.matched",
             protocol=protocol.get("name"),
@@ -145,6 +162,23 @@ class TaloslyWorker:
             if not is_new:
                 continue
             transactions_found += 1
+
+            tx_data = {
+                "to": parsed.get("to_address"),
+                "from": parsed.get("from_address"),
+                "input": parsed.get("input_data", "0x"),
+                "value": parsed.get("value_eth", 0),
+            }
+            should_escalate, filter_reason = self.pre_filter.should_evaluate(tx_data)
+            if not should_escalate:
+                logger.info(
+                    "transaction.prefilter.pass",
+                    protocol=protocol["name"],
+                    tx_hash=parsed["tx_hash"][:18],
+                    reason=filter_reason,
+                )
+                continue
+
             logger.info("transaction.fetched", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], block_number=parsed.get("block_number"))
             score_result = await self.scorer.score_transaction(parsed, protocol)
             if score_result.risk_factors:
