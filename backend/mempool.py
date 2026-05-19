@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -29,6 +30,7 @@ class MempoolSubscriber:
         self.wss_url = wss_url
         self.tx_handler = tx_handler_callback
         self.is_running = False
+        self.websocket: Any | None = None
 
     async def start(self) -> None:
         self.is_running = True
@@ -43,6 +45,7 @@ class MempoolSubscriber:
                     ping_interval=20,
                     ping_timeout=10,
                 ) as websocket:
+                    self.websocket = websocket
                     await websocket.send(
                         json.dumps(
                             {
@@ -75,9 +78,14 @@ class MempoolSubscriber:
                 logger.error("mempool.loop.error", error=str(exc), retry_delay=retry_delay)
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, _BACKOFF_MAX_SECONDS)
+            finally:
+                self.websocket = None
 
     def stop(self) -> None:
         self.is_running = False
+        if self.websocket:
+            with contextlib.suppress(RuntimeError):
+                asyncio.get_running_loop().create_task(self.websocket.close())
         logger.info("mempool.stopped")
 
     @staticmethod

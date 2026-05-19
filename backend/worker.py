@@ -27,10 +27,11 @@ class TaloslyWorker:
 
     def stop(self, *_args) -> None:
         self.running = False
+        if self.mempool_subscriber:
+            self.mempool_subscriber.stop()
 
     async def run(self) -> None:
         await db.init_db()
-        await self._start_mempool_subscriber()
         logger.info(
             "worker.start",
             version="0.2.0",
@@ -39,6 +40,21 @@ class TaloslyWorker:
             risk_threshold=settings.risk_alert_threshold,
             database="PostgreSQL",
         )
+        try:
+            if settings.enable_mempool_subscriber and settings.ethereum_ws_url:
+                await asyncio.gather(
+                    self._poll_loop(),
+                    self._run_mempool_subscriber(),
+                    return_exceptions=True,
+                )
+            else:
+                if settings.enable_mempool_subscriber:
+                    logger.warning("mempool.disabled", reason="missing websocket url")
+                await self._poll_loop()
+        finally:
+            await self.shutdown("stop requested")
+
+    async def _poll_loop(self) -> None:
         while self.running:
             started = time.perf_counter()
             protocols_checked = 0
@@ -65,7 +81,6 @@ class TaloslyWorker:
                 duration_ms=int((time.perf_counter() - started) * 1000),
             )
             await asyncio.sleep(max(settings.poll_interval_seconds, 10))
-        await self.shutdown("stop requested")
 
     async def shutdown(self, reason: str) -> None:
         logger.info("worker.shutdown", reason=reason)
@@ -78,13 +93,7 @@ class TaloslyWorker:
         await db.close_db()
         logger.info("worker.stopped")
 
-    async def _start_mempool_subscriber(self) -> None:
-        if not settings.enable_mempool_subscriber:
-            return
-        if not settings.ethereum_ws_url:
-            logger.warning("mempool.disabled", reason="missing websocket url")
-            return
-
+    async def _run_mempool_subscriber(self) -> None:
         protocols = await db.get_all_protocols(active_only=True)
         self.mempool_protocols = {
             protocol["address"].lower(): protocol
@@ -95,8 +104,9 @@ class TaloslyWorker:
             settings.ethereum_ws_url,
             tx_handler_callback=self._process_mempool_transaction,
         )
-        self.mempool_task = asyncio.create_task(self.mempool_subscriber.start(), name="mempool-subscriber")
+        self.mempool_task = asyncio.current_task()
         logger.info("mempool.started", watched_protocols=len(self.mempool_protocols))
+        await self.mempool_subscriber.start()
 
     async def _process_mempool_transaction(self, tx: dict) -> None:
         tx_hash = tx.get("hash")
