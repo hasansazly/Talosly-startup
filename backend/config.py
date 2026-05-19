@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     alchemy_api_key: str = ""
+    alchemy_wss_url: str = ""
     alchemy_ws_url: str = ""
     etherscan_api_key: str = ""
     ethereum_rpc_url: str = "https://cloudflare-eth.com"
@@ -35,6 +36,8 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def ethereum_ws_url(self) -> str:
+        if self.alchemy_wss_url:
+            return self.alchemy_wss_url
         if self.alchemy_ws_url:
             return self.alchemy_ws_url
         if self.alchemy_api_key:
