@@ -1,9 +1,10 @@
-from pydantic import model_validator
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     alchemy_api_key: str = ""
+    alchemy_ws_url: str = ""
     etherscan_api_key: str = ""
     ethereum_rpc_url: str = "https://cloudflare-eth.com"
     openai_api_key: str = ""
@@ -30,6 +31,15 @@ class Settings(BaseSettings):
     log_format: str = "pretty"
     app_env: str = "development"
     resend_api_key: str = ""
+
+    @computed_field
+    @property
+    def ethereum_ws_url(self) -> str:
+        if self.alchemy_ws_url:
+            return self.alchemy_ws_url
+        if self.alchemy_api_key:
+            return f"wss://eth-mainnet.g.alchemy.com/v2/{self.alchemy_api_key}"
+        return ""
 
     @model_validator(mode="after")
     def validate_launch_settings(self):
