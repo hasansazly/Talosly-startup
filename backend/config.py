@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     alchemy_api_key: str = ""
     alchemy_wss_url: str = ""
     alchemy_ws_url: str = ""
+    enable_mempool_subscriber: bool = False
     etherscan_api_key: str = ""
     ethereum_rpc_url: str = "https://cloudflare-eth.com"
     openai_api_key: str = ""

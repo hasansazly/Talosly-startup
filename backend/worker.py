@@ -1,10 +1,12 @@
 import asyncio
+import contextlib
 import datetime
 import signal
 import time
 
 from backend import database as db
 from backend.config import settings
+from backend.mempool import MempoolSubscriber
 from backend.services.logger import logger
 from backend.services.rpc import EthereumRPCClient
 from backend.services.scorer import TransactionScorer
@@ -19,12 +21,16 @@ class TaloslyWorker:
         self.running = True
         self.last_seen_blocks: dict[str, int] = {}
         self.rpc_backoff_seconds = 0
+        self.mempool_subscriber: MempoolSubscriber | None = None
+        self.mempool_task: asyncio.Task | None = None
+        self.mempool_protocols: dict[str, dict] = {}
 
     def stop(self, *_args) -> None:
         self.running = False
 
     async def run(self) -> None:
         await db.init_db()
+        await self._start_mempool_subscriber()
         logger.info(
             "worker.start",
             version="0.2.0",
@@ -63,8 +69,48 @@ class TaloslyWorker:
 
     async def shutdown(self, reason: str) -> None:
         logger.info("worker.shutdown", reason=reason)
+        if self.mempool_subscriber:
+            self.mempool_subscriber.stop()
+        if self.mempool_task:
+            self.mempool_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.mempool_task
         await db.close_db()
         logger.info("worker.stopped")
+
+    async def _start_mempool_subscriber(self) -> None:
+        if not settings.enable_mempool_subscriber:
+            return
+        if not settings.ethereum_ws_url:
+            logger.warning("mempool.disabled", reason="missing websocket url")
+            return
+
+        protocols = await db.get_all_protocols(active_only=True)
+        self.mempool_protocols = {
+            protocol["address"].lower(): protocol
+            for protocol in protocols
+            if protocol.get("address")
+        }
+        self.mempool_subscriber = MempoolSubscriber(
+            settings.ethereum_ws_url,
+            tx_handler_callback=self._process_mempool_transaction,
+        )
+        self.mempool_task = asyncio.create_task(self.mempool_subscriber.start(), name="mempool-subscriber")
+        logger.info("mempool.started", watched_protocols=len(self.mempool_protocols))
+
+    async def _process_mempool_transaction(self, tx: dict) -> None:
+        tx_hash = tx.get("hash")
+        to_address = (tx.get("to") or "").lower()
+        protocol = self.mempool_protocols.get(to_address)
+        if not tx_hash or not protocol:
+            return
+
+        logger.info(
+            "mempool.transaction.matched",
+            protocol=protocol.get("name"),
+            tx_hash=tx_hash[:18],
+            to_address=to_address,
+        )
 
     async def _poll_protocol(self, protocol: dict) -> tuple[int, int]:
         address = protocol["address"]
