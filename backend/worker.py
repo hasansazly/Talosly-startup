@@ -11,6 +11,7 @@ from backend.services.logger import logger
 from backend.services.rpc import EthereumRPCClient
 from backend.services.scorer import TransactionScorer
 from backend.services.telegram import TelegramService
+from scoring.features import Layer2FeatureEngineering
 from scoring.filters import PreFilterManager
 
 
@@ -20,6 +21,7 @@ class TaloslyWorker:
         self.scorer = TransactionScorer()
         self.telegram = TelegramService()
         self.pre_filter = PreFilterManager()
+        self.layer2 = Layer2FeatureEngineering()
         self.running = True
         self.last_seen_blocks: dict[str, int] = {}
         self.rpc_backoff_seconds = 0
@@ -131,12 +133,14 @@ class TaloslyWorker:
                 reason=filter_reason,
             )
             return
+        layer2_features = self.layer2.process(tx).to_dict()
 
         logger.info(
             "mempool.transaction.matched",
             protocol=protocol.get("name"),
             tx_hash=tx_hash[:18],
             to_address=to_address,
+            layer2_features=layer2_features,
         )
 
     async def _risk_threshold(self) -> int:
@@ -178,6 +182,7 @@ class TaloslyWorker:
                     reason=filter_reason,
                 )
                 continue
+            parsed["layer2_features"] = self.layer2.process(parsed).to_dict()
 
             logger.info("transaction.fetched", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], block_number=parsed.get("block_number"))
             score_result = await self.scorer.score_transaction(parsed, protocol)
