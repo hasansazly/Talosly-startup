@@ -37,7 +37,7 @@ class TaloslyWorker:
             version="0.2.0",
             environment=settings.app_env,
             poll_interval=settings.poll_interval_seconds,
-            risk_threshold=settings.risk_alert_threshold,
+            risk_threshold=await self._risk_threshold(),
             database="PostgreSQL",
         )
         try:
@@ -122,6 +122,9 @@ class TaloslyWorker:
             to_address=to_address,
         )
 
+    async def _risk_threshold(self) -> int:
+        return int(await db.get_app_setting("risk_alert_threshold", settings.risk_alert_threshold))
+
     async def _poll_protocol(self, protocol: dict) -> tuple[int, int]:
         address = protocol["address"]
         latest_block = await self.rpc.get_latest_block_number()
@@ -150,7 +153,7 @@ class TaloslyWorker:
                 openai_scored_this_loop += 1
             await db.update_transaction_score(tx_id, score_result.risk_score, score_result.risk_summary, score_result.risk_factors)
             logger.info("transaction.scored", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], risk_score=score_result.risk_score)
-            if score_result.risk_score >= settings.risk_alert_threshold:
+            if score_result.risk_score >= await self._risk_threshold():
                 alert_id = await db.insert_alert(tx_id, score_result.risk_score, score_result.risk_summary)
                 alerts_fired += 1
                 logger.info("alert.created", alert_id=alert_id, risk_score=score_result.risk_score, tx_hash=parsed["tx_hash"][:18])

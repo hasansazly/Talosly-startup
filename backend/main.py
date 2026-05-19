@@ -16,9 +16,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from backend.config import settings
-from backend.database import init_db, log_request
+from backend.database import get_app_setting, init_db, log_request
 from backend.routers.alerts import router as alerts_router
 from backend.routers.protocols import router as protocols_router
+from backend.routers.settings import admin_router as settings_admin_router
+from backend.routers.settings import router as settings_router
 from backend.routers.transactions import router as transactions_router
 from backend.routers.waitlist import admin_router, router as waitlist_router
 from backend.services.blacklist import BLACKLIST
@@ -106,6 +108,8 @@ app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(alerts_router, prefix="/api/v1/alerts", tags=["alerts"])
 app.include_router(waitlist_router, prefix="/api/waitlist", tags=["waitlist"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
+app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
+app.include_router(settings_admin_router, prefix="/api/admin", tags=["admin"])
 
 
 @app.exception_handler(Exception)
@@ -205,15 +209,17 @@ async def _fetch_replay_transaction(tx_hash: str) -> dict[str, Any]:
 
 @app.post("/api/demo/replay")
 async def demo_replay(payload: DemoReplayRequest):
-    requested_hash = (payload.tx_hash or payload.hash or EULER_REPLAY_HASH).strip()
+    replay_hash = await get_app_setting("euler_replay_hash", EULER_REPLAY_HASH)
+    risk_threshold = await get_app_setting("risk_alert_threshold", settings.risk_alert_threshold)
+    requested_hash = (payload.tx_hash or payload.hash or replay_hash).strip()
     hash_note = None
     if requested_hash.lower() == GEMINI_EULER_HASH.lower():
-        requested_hash = EULER_REPLAY_HASH
+        requested_hash = replay_hash
         hash_note = "Gemini's pasted hash differs from the canonical Euler transaction; Talosly fetched the canonical Euler hash from RPC."
 
-    tx = await _fetch_replay_transaction(requested_hash or EULER_REPLAY_HASH)
+    tx = await _fetch_replay_transaction(requested_hash or replay_hash)
     protocol = {
-        "name": DEFAULT_REPLAY_PROTOCOL["name"] if tx.get("tx_hash", "").lower() == EULER_REPLAY_HASH else "Live Replay Target",
+        "name": DEFAULT_REPLAY_PROTOCOL["name"] if tx.get("tx_hash", "").lower() == replay_hash.lower() else "Live Replay Target",
         "address": tx.get("to_address") or DEFAULT_REPLAY_PROTOCOL["address"],
     }
 
@@ -251,8 +257,8 @@ async def demo_replay(payload: DemoReplayRequest):
         "behavior_score": behavioral_payload["risk_score"],
         "result": result_payload,
         "behavioral_result": behavioral_payload,
-        "alert": result_payload["risk_score"] >= 70,
-        "action": "PROTOCOL_PAUSE_READY" if result_payload["risk_score"] >= 70 else "MONITOR",
+        "alert": result_payload["risk_score"] >= risk_threshold,
+        "action": "PROTOCOL_PAUSE_READY" if result_payload["risk_score"] >= risk_threshold else "MONITOR",
         "elapsed_ms": 1840,
         "hash_note": hash_note,
         "trace": [

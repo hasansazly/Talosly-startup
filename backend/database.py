@@ -8,9 +8,68 @@ from backend.config import settings
 
 _pool: asyncpg.Pool | None = None
 
+DEFAULT_APP_SETTINGS: dict[str, dict[str, Any]] = {
+    "risk_alert_threshold": {
+        "value": "70",
+        "value_type": "int",
+        "description": "Risk score at or above this value creates an alert.",
+        "is_public": True,
+    },
+    "euler_replay_hash": {
+        "value": "0xc310a0affe2169d1f6feec1c63dbc7f7c62a887fa48795d327d4d2da2d6b111d",
+        "value_type": "string",
+        "description": "Default transaction hash used by the replay demo.",
+        "is_public": True,
+    },
+    "marketing_transactions_scored": {
+        "value": "11868",
+        "value_type": "int",
+        "description": "Public marketing counter for transactions scored.",
+        "is_public": True,
+    },
+    "marketing_alerts_fired": {
+        "value": "10832",
+        "value_type": "int",
+        "description": "Public marketing counter for alerts fired.",
+        "is_public": True,
+    },
+    "marketing_protocols_live": {
+        "value": "5",
+        "value_type": "int",
+        "description": "Public marketing counter for live protocols.",
+        "is_public": True,
+    },
+    "marketing_alert_latency": {
+        "value": "<3s",
+        "value_type": "string",
+        "description": "Public marketing copy for alert latency.",
+        "is_public": True,
+    },
+}
+
 
 def _record_to_dict(row: asyncpg.Record | None) -> dict[str, Any] | None:
     return dict(row) if row else None
+
+
+def _parse_setting_value(value: str, value_type: str) -> Any:
+    if value_type == "int":
+        return int(value)
+    if value_type == "float":
+        return float(value)
+    if value_type == "bool":
+        return value.lower() in {"1", "true", "yes", "on"}
+    if value_type == "json":
+        return json.loads(value)
+    return value
+
+
+def _serialize_setting_value(value: Any, value_type: str) -> str:
+    if value_type == "json":
+        return json.dumps(value)
+    if value_type == "bool":
+        return "true" if bool(value) else "false"
+    return str(value)
 
 
 async def init_db() -> None:
@@ -203,6 +262,32 @@ async def _create_tables() -> None:
             )
             """
         )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                value_type TEXT NOT NULL DEFAULT 'string',
+                description TEXT,
+                is_public BOOLEAN NOT NULL DEFAULT FALSE,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        for key, item in DEFAULT_APP_SETTINGS.items():
+            await conn.execute(
+                """
+                INSERT INTO settings (key, value, value_type, description, is_public)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (key) DO NOTHING
+                """,
+                key,
+                item["value"],
+                item["value_type"],
+                item["description"],
+                item["is_public"],
+            )
 
 
 async def insert_protocol(name: str, address: str) -> int:
@@ -253,6 +338,68 @@ async def toggle_protocol(protocol_id: int) -> dict[str, Any] | None:
 async def update_protocol_last_seen(protocol_id: int, block_number: int) -> None:
     pool = await get_pool()
     await pool.execute("UPDATE protocols SET last_seen_block = $1 WHERE id = $2", block_number, protocol_id)
+
+
+async def get_app_settings(public_only: bool = False) -> dict[str, Any]:
+    pool = await get_pool()
+    if public_only:
+        rows = await pool.fetch("SELECT * FROM settings WHERE is_public = TRUE ORDER BY key")
+    else:
+        rows = await pool.fetch("SELECT * FROM settings ORDER BY key")
+    return {
+        row["key"]: _parse_setting_value(row["value"], row["value_type"])
+        for row in rows
+    }
+
+
+async def get_app_settings_rows(public_only: bool = False) -> list[dict[str, Any]]:
+    pool = await get_pool()
+    if public_only:
+        rows = await pool.fetch("SELECT * FROM settings WHERE is_public = TRUE ORDER BY key")
+    else:
+        rows = await pool.fetch("SELECT * FROM settings ORDER BY key")
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["parsed_value"] = _parse_setting_value(item["value"], item["value_type"])
+        result.append(item)
+    return result
+
+
+async def get_app_setting(key: str, default: Any = None) -> Any:
+    pool = await get_pool()
+    row = await pool.fetchrow("SELECT value, value_type FROM settings WHERE key = $1", key)
+    if not row:
+        return default
+    return _parse_setting_value(row["value"], row["value_type"])
+
+
+async def set_app_setting(key: str, value: Any, value_type: str = "string", description: str | None = None, is_public: bool = False) -> dict[str, Any]:
+    if value_type not in {"string", "int", "float", "bool", "json"}:
+        raise ValueError("Unsupported setting value_type")
+    serialized = _serialize_setting_value(value, value_type)
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        INSERT INTO settings (key, value, value_type, description, is_public)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (key) DO UPDATE SET
+            value = EXCLUDED.value,
+            value_type = EXCLUDED.value_type,
+            description = COALESCE(EXCLUDED.description, settings.description),
+            is_public = EXCLUDED.is_public,
+            updated_at = NOW()
+        RETURNING *
+        """,
+        key,
+        serialized,
+        value_type,
+        description,
+        is_public,
+    )
+    item = dict(row)
+    item["parsed_value"] = _parse_setting_value(item["value"], item["value_type"])
+    return item
 
 
 async def upsert_transaction(protocol_id: int, tx_data_dict: dict[str, Any]) -> tuple[int, bool]:

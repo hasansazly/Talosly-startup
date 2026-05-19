@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Header from '../components/Header.jsx';
-import { getHealth, runDemoReplay } from '../api.js';
+import { getHealth, getPublicSettings, runDemoReplay } from '../api.js';
 
 const EULER_HASH = '0xc310a0affe2169d1f6feec1c63dbc7f7c62a887fa48795d327d4d2da2d6b111d';
 
@@ -21,12 +21,13 @@ export default function Replay() {
   const [activeStage, setActiveStage] = useState(-1);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState('');
+  const [appSettings, setAppSettings] = useState({ risk_alert_threshold: 70, euler_replay_hash: EULER_HASH });
 
   const traceSteps = result?.trace || [];
   const riskScore = result?.score ?? result?.result?.risk_score ?? 0;
   const behavioralScore = result?.behavior_score ?? result?.behavioral_result?.risk_score ?? 0;
   const riskFactors = result?.factors || result?.behavioral_result?.risk_factors || result?.result?.risk_factors || [];
-  const isCritical = riskScore >= 70;
+  const isCritical = riskScore >= appSettings.risk_alert_threshold;
 
   const scoreStyle = useMemo(() => ({
     '--score-degrees': `${Math.min(riskScore, 100) * 3.6}deg`,
@@ -39,6 +40,12 @@ export default function Replay() {
         setLastUpdated(new Date().toLocaleTimeString());
       })
       .catch(() => setOnline(false));
+    getPublicSettings()
+      .then((settings) => {
+        setAppSettings(settings);
+        setTxHash((current) => current === EULER_HASH ? settings.euler_replay_hash || EULER_HASH : current);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -169,7 +176,7 @@ export default function Replay() {
             <pre>{`if blacklisted(address):
   score = 98
 score += weighted_behavior_points(tx)
-if score >= 70:
+if score >= ${appSettings.risk_alert_threshold}:
   trigger("PROTOCOL_PAUSE_READY")`}</pre>
           </section>
         </aside>

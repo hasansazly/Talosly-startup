@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { approveWaitlist, createAdminKey, getAdminKeys, getAdminMetrics, getAdminWaitlist, rejectWaitlist, revokeKey, validateAdminKey } from '../api.js';
+import { approveWaitlist, createAdminKey, getAdminKeys, getAdminMetrics, getAdminSettings, getAdminWaitlist, rejectWaitlist, revokeKey, updateAdminSetting, validateAdminKey } from '../api.js';
 
 export default function Admin() {
   const [secret, setSecret] = useState(sessionStorage.getItem('talosly_admin_secret') || '');
@@ -10,6 +10,7 @@ export default function Admin() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [keyToValidate, setKeyToValidate] = useState('');
+  const [appSettings, setAppSettings] = useState([]);
 
   async function load() {
     try {
@@ -24,6 +25,7 @@ export default function Admin() {
         setWaitlist({ counts: {}, items: [] });
       }
       setKeys(await getAdminKeys());
+      setAppSettings(await getAdminSettings());
     } catch (err) {
       setError(err.message || 'Admin unlock failed');
     }
@@ -66,6 +68,23 @@ export default function Admin() {
       await load();
     } catch (err) {
       setError(err.message || 'Could not revoke key');
+    }
+  }
+
+  async function saveSetting(setting) {
+    try {
+      setError('');
+      setNotice('');
+      await updateAdminSetting(setting.key, {
+        value: setting.value,
+        value_type: setting.value_type,
+        description: setting.description,
+        is_public: setting.is_public,
+      });
+      setNotice(`Saved ${setting.key}`);
+      setAppSettings(await getAdminSettings());
+    } catch (err) {
+      setError(err.message || 'Could not save setting');
     }
   }
 
@@ -136,6 +155,23 @@ export default function Admin() {
           {notice && <div className="form-message">{notice}</div>}
         </section>
       )}
+      <section className="panel table-panel">
+        <h2>Settings</h2>
+        <div className="table-wrap"><table><thead><tr><th>Key</th><th>Value</th><th>Type</th><th>Public</th><th></th></tr></thead>
+          <tbody>{appSettings.map((setting, index) => (
+            <tr key={setting.key}>
+              <td className="mono">{setting.key}</td>
+              <td><input value={setting.value} onChange={(event) => {
+                const next = [...appSettings];
+                next[index] = { ...setting, value: event.target.value };
+                setAppSettings(next);
+              }} /></td>
+              <td>{setting.value_type}</td>
+              <td>{setting.is_public ? 'Yes' : 'No'}</td>
+              <td><button onClick={() => saveSetting(setting)}>Save</button></td>
+            </tr>
+          ))}</tbody></table></div>
+      </section>
       <section className="panel table-panel">
         <h2>Waitlist Queue</h2>
         <div className="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Project</th><th>Twitter</th><th>Goal</th><th>Status</th><th>Actions</th></tr></thead>

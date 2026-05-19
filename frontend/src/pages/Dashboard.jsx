@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { addProtocol, getAlerts, getHealth, getProtocols, getTransactions, setStoredApiKey } from '../api.js';
+import { addProtocol, getAlerts, getHealth, getProtocols, getPublicSettings, getTransactions, setStoredApiKey } from '../api.js';
 import AlertDetailModal from '../components/AlertDetailModal.jsx';
 import AlertFeed, { copyAlertSummary, downloadAlertJson } from '../components/AlertFeed.jsx';
 import Header from '../components/Header.jsx';
@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [savedApiKey, setSavedApiKey] = useState(sessionStorage.getItem('talosly_api_key') || localStorage.getItem('talosly_api_key') || '');
   const [apiKeyDraft, setApiKeyDraft] = useState(savedApiKey);
+  const [appSettings, setAppSettings] = useState({ risk_alert_threshold: 70 });
 
   const activeProtocol = useMemo(() => protocols.find((item) => item.is_active) || protocols[0], [protocols]);
   const workerOnline = online && lastSignalAt && Math.floor((now - new Date(lastSignalAt).getTime()) / 1000) <= 30;
@@ -32,6 +33,7 @@ export default function Dashboard() {
       const selected = nextProtocols.find((item) => item.is_active) || nextProtocols[0];
       setTransactions(await getTransactions(selected?.id, 50));
       setAlerts(await getAlerts(12));
+      getPublicSettings().then(setAppSettings).catch(() => {});
       const timestamp = new Date();
       setLastUpdated(timestamp.toLocaleTimeString());
       setLastSignalAt(timestamp.toISOString());
@@ -133,7 +135,7 @@ export default function Dashboard() {
         backendOnline={online}
         workerOnline={Boolean(workerOnline)}
         lastRpcSync={lastSignalAt}
-        alertThreshold={70}
+        alertThreshold={appSettings.risk_alert_threshold}
       />
       <AlertDetailModal
         alert={selectedAlert}

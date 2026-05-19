@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { applyWaitlist, getDemoTransactions, getStats } from '../api.js';
+import { applyWaitlist, getDemoTransactions, getPublicSettings, getStats } from '../api.js';
 import RiskBadge from '../components/RiskBadge.jsx';
 
 function short(value) {
@@ -9,12 +9,20 @@ function short(value) {
 
 export default function Landing() {
   const [stats, setStats] = useState({ protocols_monitored: 0, transactions_scored: 0, alerts_fired: 0 });
+  const [appSettings, setAppSettings] = useState({
+    risk_alert_threshold: 70,
+    marketing_transactions_scored: 11868,
+    marketing_alerts_fired: 10832,
+    marketing_protocols_live: 5,
+    marketing_alert_latency: '<3s',
+  });
   const [feed, setFeed] = useState([]);
   const [form, setForm] = useState({ name: '', email: '', project: '', twitter: '', goal: '' });
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     getStats().then(setStats).catch(() => {});
+    getPublicSettings().then(setAppSettings).catch(() => {});
     const loadFeed = () => getDemoTransactions().then(setFeed).catch(() => {});
     loadFeed();
     const id = setInterval(loadFeed, 10000);
@@ -32,6 +40,10 @@ export default function Landing() {
       setMessage(error.message || "You're already on the list. We'll be in touch.");
     }
   }
+
+  const marketingTransactions = Number(appSettings.marketing_transactions_scored || 0).toLocaleString();
+  const marketingAlerts = Number(appSettings.marketing_alerts_fired || 0).toLocaleString();
+  const marketingProtocols = Number(appSettings.marketing_protocols_live || 0).toLocaleString();
 
   return (
     <main className="landing">
@@ -98,13 +110,13 @@ export default function Landing() {
       <div style={{ borderTop: '1px solid rgba(56,189,248,0.08)', borderBottom: '1px solid rgba(56,189,248,0.08)', padding: '14px 0', overflow: 'hidden', background: 'rgba(13,19,32,0.5)' }}>
         <div style={{ display: 'flex', gap: 0, animation: 'ticker 30s linear infinite', whiteSpace: 'nowrap', width: 'max-content' }}>
           <span style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', padding: '0 32px', letterSpacing: '0.1em' }}>
-            UNISWAP V3 · 11,868 TX SCORED &nbsp;·&nbsp; 10,832 ALERTS FIRED &nbsp;·&nbsp; AAVE · MONITORING ACTIVE &nbsp;·&nbsp; COMPOUND · WATCHING &nbsp;·&nbsp; RISK THRESHOLD: 70 &nbsp;·&nbsp;
+            UNISWAP V3 · {marketingTransactions} TX SCORED &nbsp;·&nbsp; {marketingAlerts} ALERTS FIRED &nbsp;·&nbsp; AAVE · MONITORING ACTIVE &nbsp;·&nbsp; COMPOUND · WATCHING &nbsp;·&nbsp; RISK THRESHOLD: {appSettings.risk_alert_threshold} &nbsp;·&nbsp;
           </span>
           <span style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', padding: '0 32px', letterSpacing: '0.1em' }}>
-            UNISWAP V3 · 11,868 TX SCORED &nbsp;·&nbsp; 10,832 ALERTS FIRED &nbsp;·&nbsp; AAVE · MONITORING ACTIVE &nbsp;·&nbsp; COMPOUND · WATCHING &nbsp;·&nbsp; RISK THRESHOLD: 70 &nbsp;·&nbsp;
+            UNISWAP V3 · {marketingTransactions} TX SCORED &nbsp;·&nbsp; {marketingAlerts} ALERTS FIRED &nbsp;·&nbsp; AAVE · MONITORING ACTIVE &nbsp;·&nbsp; COMPOUND · WATCHING &nbsp;·&nbsp; RISK THRESHOLD: {appSettings.risk_alert_threshold} &nbsp;·&nbsp;
           </span>
           <span style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', padding: '0 32px', letterSpacing: '0.1em' }}>
-            UNISWAP V3 · 11,868 TX SCORED &nbsp;·&nbsp; 10,832 ALERTS FIRED &nbsp;·&nbsp; AAVE · MONITORING ACTIVE &nbsp;·&nbsp; COMPOUND · WATCHING &nbsp;·&nbsp; RISK THRESHOLD: 70 &nbsp;·&nbsp;
+            UNISWAP V3 · {marketingTransactions} TX SCORED &nbsp;·&nbsp; {marketingAlerts} ALERTS FIRED &nbsp;·&nbsp; AAVE · MONITORING ACTIVE &nbsp;·&nbsp; COMPOUND · WATCHING &nbsp;·&nbsp; RISK THRESHOLD: {appSettings.risk_alert_threshold} &nbsp;·&nbsp;
           </span>
         </div>
       </div>
@@ -127,25 +139,25 @@ export default function Landing() {
         </div>
         <article><span>01.</span><h3>Connect</h3><p>Add your contract address. Takes 30 seconds.</p></article>
         <article><span>02.</span><h3>Monitor</h3><p>Talosly watches every transaction 24/7 via AI.</p></article>
-        <article><span>03.</span><h3>Alert</h3><p>Risk score above 70 triggers Telegram in seconds.</p></article>
+        <article><span>03.</span><h3>Alert</h3><p>Risk score above {appSettings.risk_alert_threshold} triggers Telegram in seconds.</p></article>
       </section>
 
       <div style={{ padding: '72px 48px', textAlign: 'center', borderTop: '1px solid rgba(56,189,248,0.08)' }}>
         <div style={{ display: 'flex', justifyContent: 'center', gap: '80px', flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", lineHeight: 1 }}>11,868</div>
+            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", lineHeight: 1 }}>{marketingTransactions}</div>
             <div style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: '8px' }}>Transactions Scored</div>
           </div>
           <div>
-            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", lineHeight: 1 }}>10,832</div>
+            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", lineHeight: 1 }}>{marketingAlerts}</div>
             <div style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: '8px' }}>Alerts Fired</div>
           </div>
           <div>
-            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", lineHeight: 1 }}>5</div>
+            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", lineHeight: 1 }}>{marketingProtocols}</div>
             <div style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: '8px' }}>Protocols Live</div>
           </div>
           <div>
-            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", color: '#34d399', lineHeight: 1 }}>&lt;3s</div>
+            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", color: '#34d399', lineHeight: 1 }}>{appSettings.marketing_alert_latency}</div>
             <div style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: '8px' }}>Alert Latency</div>
           </div>
         </div>

@@ -52,6 +52,7 @@ async function unwrap(request) {
 
 export const getHealth = () => unwrap(api.get('/api/health'));
 export const getStats = () => unwrap(api.get('/api/stats'));
+export const getPublicSettings = () => unwrap(api.get('/api/settings'));
 export const getDemoTransactions = () => unwrap(api.get('/api/demo/transactions'));
 export const runDemoReplay = (txHash) => unwrap(api.post('/api/demo/replay', { tx_hash: txHash }));
 export const applyWaitlist = (payload) => unwrap(api.post('/api/waitlist/apply', payload));
@@ -70,6 +71,8 @@ export const getAdminWaitlist = () => unwrap(api.get('/api/admin/waitlist', { he
 export const approveWaitlist = (id) => unwrap(api.post(`/api/admin/waitlist/${id}/approve`, null, { headers: adminHeaders() }));
 export const rejectWaitlist = (id) => unwrap(api.post(`/api/admin/waitlist/${id}/reject`, null, { headers: adminHeaders() }));
 export const getAdminKeys = () => unwrap(api.get('/api/admin/keys', { headers: adminHeaders() }));
+export const getAdminSettings = () => unwrap(api.get('/api/admin/settings', { headers: adminHeaders() }));
+export const updateAdminSetting = (key, payload) => unwrap(api.put(`/api/admin/settings/${key}`, payload, { headers: adminHeaders() }));
 export const createAdminKey = (name = 'Dev key') => unwrap(api.post('/api/admin/keys/create', null, { params: { name }, headers: adminHeaders() }));
 export const validateAdminKey = (apiKey) => unwrap(api.post('/api/admin/keys/validate', null, { params: { api_key: apiKey }, headers: adminHeaders() }));
 export const revokeKey = (id) => unwrap(api.delete(`/api/admin/keys/${id}`, { headers: adminHeaders() }));
