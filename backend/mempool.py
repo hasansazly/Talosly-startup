@@ -26,9 +26,10 @@ def _log_task_exception(task: asyncio.Task) -> None:
 class MempoolSubscriber:
     """Persistent Alchemy pending-transaction subscriber."""
 
-    def __init__(self, wss_url: str, tx_handler_callback: TransactionHandler) -> None:
+    def __init__(self, wss_url: str, tx_handler_callback: TransactionHandler, to_addresses: list[str] | None = None) -> None:
         self.wss_url = wss_url
         self.tx_handler = tx_handler_callback
+        self.to_addresses = sorted({address for address in (to_addresses or []) if address})
         self.is_running = False
         self.websocket: Any | None = None
 
@@ -46,22 +47,13 @@ class MempoolSubscriber:
                     ping_timeout=10,
                 ) as websocket:
                     self.websocket = websocket
-                    await websocket.send(
-                        json.dumps(
-                            {
-                                "jsonrpc": "2.0",
-                                "id": 1,
-                                "method": "eth_subscribe",
-                                "params": ["alchemy_pendingTransactions"],
-                            }
-                        )
-                    )
+                    await websocket.send(json.dumps(self._subscription_payload()))
 
                     ack = json.loads(await websocket.recv())
                     if "error" in ack:
                         raise RuntimeError(f"Alchemy pending transaction subscription failed: {ack['error']}")
 
-                    logger.info("mempool.subscribed", subscription_id=ack.get("result"))
+                    logger.info("mempool.subscribed", subscription_id=ack.get("result"), to_address_count=len(self.to_addresses))
                     retry_delay = _BACKOFF_INITIAL_SECONDS
 
                     async for raw_message in websocket:
@@ -87,6 +79,17 @@ class MempoolSubscriber:
             with contextlib.suppress(RuntimeError):
                 asyncio.get_running_loop().create_task(self.websocket.close())
         logger.info("mempool.stopped")
+
+    def _subscription_payload(self) -> dict[str, Any]:
+        params: list[Any] = ["alchemy_pendingTransactions"]
+        if self.to_addresses:
+            params.append({"toAddress": self.to_addresses, "hashesOnly": False})
+        return {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_subscribe",
+            "params": params,
+        }
 
     @staticmethod
     def _extract_transaction(raw_message: str) -> dict[str, Any] | None:

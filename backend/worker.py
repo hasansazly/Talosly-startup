@@ -104,9 +104,13 @@ class TaloslyWorker:
             for protocol in protocols
             if protocol.get("address")
         }
+        if not self.mempool_protocols:
+            logger.warning("mempool.disabled", reason="no active protocol addresses")
+            return
         self.mempool_subscriber = MempoolSubscriber(
             settings.ethereum_ws_url,
             tx_handler_callback=self._process_mempool_transaction,
+            to_addresses=list(self.mempool_protocols),
         )
         self.mempool_task = asyncio.current_task()
         logger.info("mempool.started", watched_protocols=len(self.mempool_protocols))
