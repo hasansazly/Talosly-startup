@@ -64,6 +64,7 @@ class TransactionPreFilter:
             "f2fde38b",
             "79ba5097",
         }
+        self.bloom_blacklist = self.blacklist
 
     def _initialize_blacklist(self) -> _AddressBloomFilter:
         """Load blacklisted addresses into the Bloom Filter."""
@@ -100,37 +101,57 @@ class TransactionPreFilter:
         return blacklist
 
     def should_evaluate(self, tx: dict[str, Any]) -> tuple[bool, str]:
-        """Return whether a transaction should be evaluated by the scoring engine."""
-        from_address = tx.get("from_address") or tx.get("from")
-        if not from_address:
-            return True, "Missing from_address (possible coinbase tx)"
-
-        from_checksum = Web3.to_checksum_address(from_address)
-        if from_checksum in self.blacklist:
-            return True, "Sender address is blacklisted"
-
+        """
+        Evaluates incoming transaction data in microseconds.
+        Returns (True, reason) -> Escalate to Layer 2 Feature Engineering.
+        Returns (False, reason) -> Skip heavy scoring and save directly to DB.
+        """
         to_address = tx.get("to_address") or tx.get("to")
-        to_checksum = Web3.to_checksum_address(to_address) if to_address else ""
-        input_data = str(tx.get("input_data") or tx.get("input") or "")
-        selector = self._selector(input_data)
-        is_safe_router = bool(to_checksum) and to_checksum.lower() in self.safe_routers
-        is_safe_selector = selector in self.safe_selectors
+        from_address = tx.get("from_address") or tx.get("from")
+        input_data = str(tx.get("input_data") or tx.get("input") or "0x")
+        value_wei = self._value_wei(tx)
 
-        if is_safe_router:
-            if is_safe_selector:
-                return False, "Routine interaction on verified safe router"
+        if not to_address:
+            return True, "Contract creation transaction (High Risk)"
+        if not from_address:
+            return True, "Missing from_address validation escalation"
+
+        to_checksum = Web3.to_checksum_address(to_address)
+        from_checksum = Web3.to_checksum_address(from_address)
+        selector = self._selector(input_data)
+
+        if to_checksum in self.bloom_blacklist or from_checksum in self.bloom_blacklist:
+            return True, "Blacklisted address match caught in Bloom Filter"
+
+        if value_wei > 100 * 10**18:
+            return True, "High-value asset movement detected"
+
+        if to_checksum.lower() in self.safe_routers:
+            if selector in self.safe_selectors:
+                return False, "Routine transaction on verified safe protocol router"
             return False, "Safe router complex interaction (Fast Pass)"
 
         if selector not in self.safe_selectors:
-            return True, f"Unverified function selector execution: {selector}"
-
-        if selector in self.sensitive_selectors:
-            return True, "Sensitive selector requires evaluation"
-
-        if not to_checksum:
-            return True, "Missing to_address"
+            return True, f"Unverified function selector invocation: {selector}"
 
         return True, "Default structural check escalation"
+
+    @staticmethod
+    def _value_wei(tx: dict[str, Any]) -> int:
+        """Return transaction value in wei from common RPC/enriched shapes."""
+        if "value" not in tx and tx.get("value_eth") is not None:
+            return int(float(tx["value_eth"]) * 10**18)
+        value = tx.get("value", 0)
+        if isinstance(value, str):
+            try:
+                return int(value, 0)
+            except ValueError:
+                return 0
+        if isinstance(value, float):
+            return int(value * 10**18)
+        if value is None and tx.get("value_eth") is not None:
+            return int(float(tx["value_eth"]) * 10**18)
+        return int(value or 0)
 
     @staticmethod
     def _selector(input_data: str) -> str:
