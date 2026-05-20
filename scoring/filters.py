@@ -115,13 +115,14 @@ class TransactionPreFilter:
         selector = self._selector(input_data)
         is_safe_router = bool(to_checksum) and to_checksum.lower() in self.safe_routers
         is_safe_selector = selector in self.safe_selectors
-        is_unknown_selector = bool(selector) and selector not in self.safe_selectors and selector not in self.sensitive_selectors
 
-        if is_safe_router and is_safe_selector:
-            return False, "Safe router with known safe selector"
+        if is_safe_router:
+            if is_safe_selector:
+                return False, "Routine interaction on verified safe router"
+            return False, "Safe router complex interaction (Fast Pass)"
 
-        if is_unknown_selector:
-            return True, "Unknown selector requires evaluation"
+        if selector not in self.safe_selectors:
+            return True, f"Unverified function selector execution: {selector}"
 
         if selector in self.sensitive_selectors:
             return True, "Sensitive selector requires evaluation"
@@ -129,7 +130,7 @@ class TransactionPreFilter:
         if not to_checksum:
             return True, "Missing to_address"
 
-        return False, "No evaluation required"
+        return True, "Default structural check escalation"
 
     @staticmethod
     def _selector(input_data: str) -> str:
