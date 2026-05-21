@@ -13,6 +13,7 @@ from backend.services.scorer import TransactionScorer
 from backend.services.telegram import TelegramService
 from scoring.features import Layer2FeatureEngineering
 from scoring.filters import PreFilterManager
+from scoring.layer3 import Layer3MLEnsemble
 
 
 class TaloslyWorker:
@@ -22,6 +23,7 @@ class TaloslyWorker:
         self.telegram = TelegramService()
         self.pre_filter = PreFilterManager()
         self.layer2 = Layer2FeatureEngineering()
+        self.layer3 = Layer3MLEnsemble()
         self.running = True
         self.last_seen_blocks: dict[str, int] = {}
         self.rpc_backoff_seconds = 0
@@ -138,6 +140,7 @@ class TaloslyWorker:
             )
             return
         layer2_features = self.layer2.process(tx).to_dict()
+        layer3_result = self.layer3.score(tx_hash, layer2_features).to_dict()
 
         logger.info(
             "mempool.transaction.matched",
@@ -145,6 +148,7 @@ class TaloslyWorker:
             tx_hash=tx_hash[:18],
             to_address=to_address,
             layer2_features=layer2_features,
+            layer3_result=layer3_result,
         )
 
     async def _risk_threshold(self) -> int:
@@ -187,6 +191,7 @@ class TaloslyWorker:
                 )
                 continue
             parsed["layer2_features"] = self.layer2.process(parsed).to_dict()
+            parsed["layer3_result"] = self.layer3.score(parsed["tx_hash"], parsed["layer2_features"]).to_dict()
 
             logger.info("transaction.fetched", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], block_number=parsed.get("block_number"))
             score_result = await self.scorer.score_transaction(parsed, protocol)

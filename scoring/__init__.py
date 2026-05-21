@@ -2,6 +2,15 @@
 
 from scoring.features import Layer2FeatureEngineering, TxFeatures
 from scoring.hybrid_engine import HybridScoringEngine, score
+from scoring.layer3 import EnsembleResult, Layer3MLEnsemble
 from scoring.oracle_response import OracleRiskResponse
 
-__all__ = ["HybridScoringEngine", "Layer2FeatureEngineering", "OracleRiskResponse", "TxFeatures", "score"]
+__all__ = [
+    "EnsembleResult",
+    "HybridScoringEngine",
+    "Layer2FeatureEngineering",
+    "Layer3MLEnsemble",
+    "OracleRiskResponse",
+    "TxFeatures",
+    "score",
+]
