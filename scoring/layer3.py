@@ -1,8 +1,14 @@
-"""Layer 3 ML-style ensemble for Layer 2 transaction features.
+"""Layer 3 ML ensemble for transaction exploit routing.
 
-The production model dependencies are optional. If sklearn, xgboost, shap, or
-joblib are unavailable, this module still returns a no-cost Bayesian/heuristic
-ensemble result instead of breaking the worker.
+Railway-safe build: only numpy + scikit-learn are required. The ensemble keeps
+the 3-model architecture without xgboost, shap, or joblib:
+
+1. Isolation Forest        - unsupervised anomaly score
+2. Gradient Boosting (GBM) - supervised binary classifier
+3. Bayesian Updater        - sequential prior x likelihood
+
+The public output is a calibrated score in [0, 1]. Scores >= 0.55 escalate to
+Layer 4; lower scores are stored and skipped.
 """
 
 from __future__ import annotations
@@ -10,10 +16,15 @@ from __future__ import annotations
 import json
 import logging
 import math
+import pickle
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+import numpy as np
+from sklearn.ensemble import GradientBoostingClassifier, IsolationForest
+from sklearn.linear_model import LogisticRegression
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +52,7 @@ class EnsembleResult:
     confidence_high: float
     escalate_to_llm: bool
     isolation_score: float
-    xgb_prob: float
+    gbm_prob: float
     bayesian_prob: float
     shap_top: list[dict[str, Any]]
     latency_ms: float
@@ -50,8 +61,104 @@ class EnsembleResult:
         return asdict(self)
 
 
+class IsolationForestModel:
+    """sklearn IsolationForest wrapper returning anomaly scores in [0, 1]."""
+
+    def __init__(
+        self,
+        n_estimators: int = 200,
+        contamination: float = 0.01,
+        random_state: int = 42,
+    ) -> None:
+        self.model = IsolationForest(
+            n_estimators=n_estimators,
+            contamination=contamination,
+            random_state=random_state,
+            n_jobs=-1,
+        )
+        self._fitted = False
+
+    def fit(self, X: np.ndarray) -> None:
+        self.model.fit(X)
+        self._fitted = True
+        logger.info("IsolationForest fitted on %d samples", len(X))
+
+    def score(self, x: np.ndarray) -> float:
+        if not self._fitted:
+            raise RuntimeError("IsolationForest not fitted.")
+        raw = float(self.model.decision_function(x.reshape(1, -1))[0])
+        return round(float(np.clip(0.5 - raw, 0.0, 1.0)), 4)
+
+    def save(self, path: Path) -> None:
+        path.write_bytes(pickle.dumps(self.model))
+
+    def load(self, path: Path) -> None:
+        self.model = pickle.loads(path.read_bytes())
+        self._fitted = True
+
+
+class GBMModel:
+    """sklearn GradientBoostingClassifier with lightweight permutation SHAP."""
+
+    def __init__(
+        self,
+        n_estimators: int = 200,
+        max_depth: int = 5,
+        learning_rate: float = 0.05,
+        random_state: int = 42,
+    ) -> None:
+        self.model = GradientBoostingClassifier(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            learning_rate=learning_rate,
+            subsample=0.8,
+            random_state=random_state,
+        )
+        self._feature_means: np.ndarray | None = None
+        self._fitted = False
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        self.model.fit(X, y)
+        self._feature_means = X.mean(axis=0)
+        self._fitted = True
+        logger.info("GBM fitted on %d samples (%d positives)", len(y), int(y.sum()))
+
+    def predict_proba(self, x: np.ndarray) -> float:
+        if not self._fitted:
+            raise RuntimeError("GBM not fitted.")
+        return round(float(self.model.predict_proba(x.reshape(1, -1))[0, 1]), 4)
+
+    def permutation_shap(self, x: np.ndarray, top_n: int = 3) -> list[dict[str, Any]]:
+        if not self._fitted or self._feature_means is None:
+            return []
+
+        baseline_prob = self.predict_proba(x)
+        contributions = []
+        for index, feature_name in enumerate(FEATURE_NAMES):
+            x_masked = x.copy()
+            x_masked[index] = self._feature_means[index]
+            masked_prob = self.predict_proba(x_masked)
+            shap_value = round(baseline_prob - masked_prob, 4)
+            contributions.append((feature_name, float(x[index]), shap_value))
+
+        contributions.sort(key=lambda item: abs(item[2]), reverse=True)
+        return [
+            {"feature": name, "value": round(value, 4), "shap": shap_value}
+            for name, value, shap_value in contributions[:top_n]
+        ]
+
+    def save(self, path: Path) -> None:
+        path.write_bytes(pickle.dumps({"model": self.model, "means": self._feature_means}))
+
+    def load(self, path: Path) -> None:
+        payload = pickle.loads(path.read_bytes())
+        self.model = payload["model"]
+        self._feature_means = payload["means"]
+        self._fitted = True
+
+
 class BayesianUpdater:
-    """Sequential Bayesian risk estimate from binary feature signals."""
+    """Sequential Bayesian updates using log-odds."""
 
     LIKELIHOODS: dict[str, tuple[float, float]] = {
         "graph_centrality_high": (0.70, 0.05),
@@ -67,11 +174,11 @@ class BayesianUpdater:
     def __init__(self, base_rate: float = 0.001) -> None:
         self.base_rate = base_rate
 
-    def _signals_from_features(self, features: dict[str, Any]) -> list[str]:
+    def _active_signals(self, features: dict[str, Any]) -> list[str]:
         signals = []
-        if float(features.get("graph_centrality") or 0) > 0.3:
+        if float(features.get("graph_centrality") or 0) > 0.30:
             signals.append("graph_centrality_high")
-        if float(features.get("velocity") or 0) > 5:
+        if float(features.get("velocity") or 0) > 5.0:
             signals.append("velocity_high")
         if float(features.get("pool_drain_ratio") or 0) > 0.20:
             signals.append("pool_drain_high")
@@ -90,103 +197,119 @@ class BayesianUpdater:
     def compute(self, features: dict[str, Any]) -> tuple[float, float, float]:
         prior = min(max(self.base_rate, 1e-9), 1 - 1e-9)
         log_odds = math.log(prior / (1 - prior))
-        active_signals = self._signals_from_features(features)
+        signals = self._active_signals(features)
 
-        for signal in active_signals:
-            p_exploit, p_normal = self.LIKELIHOODS.get(signal, (0.5, 0.5))
+        for signal in signals:
+            p_exploit, p_normal = self.LIKELIHOODS[signal]
             log_odds += math.log(p_exploit / p_normal)
 
         posterior = 1 / (1 + math.exp(-log_odds))
-        n_eff = max(len(active_signals), 1)
+        n_eff = max(len(signals), 1)
         margin = 1.96 * math.sqrt(posterior * (1 - posterior) / n_eff)
-        return round(posterior, 4), round(max(posterior - margin, 0.0), 4), round(min(posterior + margin, 1.0), 4)
-
-
-class HeuristicAnomalyModel:
-    """Dependency-free anomaly proxy used until trained models are installed."""
-
-    def score(self, features: dict[str, Any]) -> float:
-        normalized = [
-            min(float(features.get("graph_centrality") or 0), 1.0),
-            min(float(features.get("velocity") or 0) / 10, 1.0),
-            min(float(features.get("pool_drain_ratio") or 0), 1.0),
-            min(float(features.get("flash_loan_fingerprint") or 0), 1.0),
-            1.0 if float(features.get("wallet_age_days") or 999) < 30 else 0.0,
-            1.0 if bool(features.get("tornado_tagged", False)) else 0.0,
-            min(float(features.get("calldata_entropy") or 0) / 8, 1.0),
-            min(max(float(features.get("gas_anomaly_zscore") or 0), 0.0) / 10, 1.0),
-        ]
-        return round(sum(normalized) / len(normalized), 4)
-
-
-class HeuristicClassifier:
-    """Dependency-free supervised-model placeholder with explainable weights."""
-
-    WEIGHTS = {
-        "graph_centrality": 0.08,
-        "velocity": 0.10,
-        "pool_drain_ratio": 0.22,
-        "flash_loan_fingerprint": 0.22,
-        "wallet_age_days": 0.08,
-        "tornado_tagged": 0.12,
-        "calldata_entropy": 0.08,
-        "gas_anomaly_zscore": 0.10,
-    }
-
-    def predict_proba(self, features: dict[str, Any]) -> float:
-        score = (
-            min(float(features.get("graph_centrality") or 0), 1.0) * self.WEIGHTS["graph_centrality"]
-            + min(float(features.get("velocity") or 0) / 10, 1.0) * self.WEIGHTS["velocity"]
-            + min(float(features.get("pool_drain_ratio") or 0), 1.0) * self.WEIGHTS["pool_drain_ratio"]
-            + min(float(features.get("flash_loan_fingerprint") or 0), 1.0) * self.WEIGHTS["flash_loan_fingerprint"]
-            + (1.0 if float(features.get("wallet_age_days") or 999) < 30 else 0.0) * self.WEIGHTS["wallet_age_days"]
-            + (1.0 if bool(features.get("tornado_tagged", False)) else 0.0) * self.WEIGHTS["tornado_tagged"]
-            + min(float(features.get("calldata_entropy") or 0) / 8, 1.0) * self.WEIGHTS["calldata_entropy"]
-            + min(max(float(features.get("gas_anomaly_zscore") or 0), 0.0) / 10, 1.0) * self.WEIGHTS["gas_anomaly_zscore"]
+        return (
+            round(posterior, 4),
+            round(max(posterior - margin, 0.0), 4),
+            round(min(posterior + margin, 1.0), 4),
         )
-        return round(min(max(score, 0.0), 1.0), 4)
-
-    def shap_top_features(self, features: dict[str, Any], top_n: int = 3) -> list[dict[str, Any]]:
-        contributions = []
-        for name in FEATURE_NAMES:
-            value = features.get(name, 0.0)
-            numeric = float(value) if not isinstance(value, bool) else float(value)
-            contributions.append({"feature": name, "value": round(numeric, 4), "shap": round(numeric * self.WEIGHTS[name], 4)})
-        return sorted(contributions, key=lambda item: abs(item["shap"]), reverse=True)[:top_n]
 
 
 class PlattScaler:
-    """Calibrate raw model scores. Uses a weighted average until fitted."""
+    """Logistic calibration with a weighted-average fallback."""
 
-    DEFAULT_WEIGHTS = (0.25, 0.50, 0.25)
+    WEIGHTS = np.array([0.25, 0.50, 0.25])
 
-    def calibrate(self, if_score: float, xgb_prob: float, bayes_prob: float) -> float:
-        score = (
-            self.DEFAULT_WEIGHTS[0] * if_score
-            + self.DEFAULT_WEIGHTS[1] * xgb_prob
-            + self.DEFAULT_WEIGHTS[2] * bayes_prob
-        )
-        return round(min(max(score, 0.0), 1.0), 4)
+    def __init__(self) -> None:
+        self._lr: LogisticRegression | None = None
+
+    def fit(self, scores: np.ndarray, labels: np.ndarray) -> None:
+        self._lr = LogisticRegression(C=1.0, max_iter=500)
+        self._lr.fit(scores, labels)
+        logger.info("PlattScaler fitted on %d samples", len(labels))
+
+    def calibrate(self, if_score: float, gbm_prob: float, bayes_prob: float) -> float:
+        raw_scores = np.array([[if_score, gbm_prob, bayes_prob]])
+        if self._lr is not None:
+            return round(float(self._lr.predict_proba(raw_scores)[0, 1]), 4)
+        return round(float(np.dot(self.WEIGHTS, raw_scores[0])), 4)
+
+    def save(self, path: Path) -> None:
+        if self._lr is not None:
+            path.write_bytes(pickle.dumps(self._lr))
+
+    def load(self, path: Path) -> None:
+        self._lr = pickle.loads(path.read_bytes())
 
 
 class Layer3MLEnsemble:
-    """Layer 3 ensemble interface for online transaction scoring."""
+    """Public interface for Layer 3 training, persistence, and inference."""
 
-    def __init__(self, base_rate: float = 0.001, model_dir: Path = MODEL_DIR) -> None:
+    def __init__(
+        self,
+        base_rate: float = 0.001,
+        model_dir: Path = MODEL_DIR,
+        bootstrap_if_missing: bool = True,
+    ) -> None:
+        self.if_model = IsolationForestModel()
+        self.gbm = GBMModel()
         self.bayesian = BayesianUpdater(base_rate=base_rate)
-        self.if_model = HeuristicAnomalyModel()
-        self.xgb_model = HeuristicClassifier()
         self.platt = PlattScaler()
         self.model_dir = model_dir
+        self._ready = False
+
+        if self._model_files_exist():
+            self.load_models()
+        elif bootstrap_if_missing:
+            self.bootstrap_synthetic()
+
+    def fit(
+        self,
+        X_normal: np.ndarray,
+        X_labelled: np.ndarray,
+        y_labelled: np.ndarray,
+        X_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+    ) -> None:
+        self.if_model.fit(X_normal)
+        self.gbm.fit(X_labelled, y_labelled)
+
+        if X_val is not None and y_val is not None:
+            self.platt.fit(self._raw_scores_batch(X_val), y_val)
+
+        self._ready = True
+        logger.info("Layer 3 training complete.")
+
+    def bootstrap_synthetic(self) -> None:
+        """Train an in-memory bootstrap model so fresh deploys can score safely."""
+        X_normal, X_labelled, y_labelled = _make_synthetic_data()
+        self.fit(X_normal, X_labelled, y_labelled)
+        logger.info("Layer 3 bootstrapped with synthetic training data.")
+
+    def _raw_scores_batch(self, X: np.ndarray) -> np.ndarray:
+        output = []
+        for x in X:
+            features = dict(zip(FEATURE_NAMES, x, strict=True))
+            output.append(
+                [
+                    self.if_model.score(x),
+                    self.gbm.predict_proba(x),
+                    self.bayesian.compute(features)[0],
+                ]
+            )
+        return np.array(output)
 
     def score(self, tx_hash: str, features: dict[str, Any]) -> EnsembleResult:
+        if not self._ready:
+            raise RuntimeError("Layer 3 models are not loaded or fitted.")
+
         started = time.perf_counter()
         clean_features = {name: features.get(name, 0.0) for name in FEATURE_NAMES}
+        x = self._to_array(clean_features)
 
-        isolation_score = self.if_model.score(clean_features)
-        xgb_prob = self.xgb_model.predict_proba(clean_features)
+        isolation_score = self.if_model.score(x)
+        gbm_prob = self.gbm.predict_proba(x)
         bayesian_prob, confidence_low, confidence_high = self.bayesian.compute(clean_features)
-        ensemble_score = self.platt.calibrate(isolation_score, xgb_prob, bayesian_prob)
+        ensemble_score = self.platt.calibrate(isolation_score, gbm_prob, bayesian_prob)
+
         confidence_low = round(max(min(confidence_low, ensemble_score - 0.02), 0.0), 4)
         confidence_high = round(min(max(confidence_high, ensemble_score + 0.02), 1.0), 4)
 
@@ -197,14 +320,109 @@ class Layer3MLEnsemble:
             confidence_high=confidence_high,
             escalate_to_llm=ensemble_score >= ESCALATION_THRESHOLD,
             isolation_score=isolation_score,
-            xgb_prob=xgb_prob,
+            gbm_prob=gbm_prob,
             bayesian_prob=bayesian_prob,
-            shap_top=self.xgb_model.shap_top_features(clean_features),
+            shap_top=self.gbm.permutation_shap(x),
             latency_ms=round((time.perf_counter() - started) * 1000, 2),
         )
 
+    @staticmethod
+    def _to_array(features: dict[str, Any]) -> np.ndarray:
+        return np.array(
+            [
+                features.get("graph_centrality", 0.0),
+                features.get("velocity", 0.0),
+                features.get("pool_drain_ratio", 0.0),
+                features.get("flash_loan_fingerprint", 0.0),
+                features.get("wallet_age_days", 0.0),
+                float(features.get("tornado_tagged", False)),
+                features.get("calldata_entropy", 0.0),
+                features.get("gas_anomaly_zscore", 0.0),
+            ],
+            dtype=np.float32,
+        )
+
+    def _model_files_exist(self) -> bool:
+        return (self.model_dir / "isolation_forest.pkl").exists() and (self.model_dir / "gbm.pkl").exists()
+
+    def save_models(self) -> None:
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+        self.if_model.save(self.model_dir / "isolation_forest.pkl")
+        self.gbm.save(self.model_dir / "gbm.pkl")
+        self.platt.save(self.model_dir / "platt_scaler.pkl")
+        logger.info("Models saved to %s", self.model_dir)
+
+    def load_models(self) -> None:
+        self.if_model.load(self.model_dir / "isolation_forest.pkl")
+        self.gbm.load(self.model_dir / "gbm.pkl")
+        platt_path = self.model_dir / "platt_scaler.pkl"
+        if platt_path.exists():
+            self.platt.load(platt_path)
+        self._ready = True
+        logger.info("Models loaded from %s", self.model_dir)
+
+
+def _make_synthetic_data(
+    n_normal: int = 2000,
+    n_exploit: int = 100,
+    seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(seed)
+
+    X_normal = np.column_stack(
+        [
+            rng.beta(1, 5, n_normal),
+            rng.exponential(0.5, n_normal),
+            rng.beta(1, 20, n_normal),
+            rng.beta(1, 15, n_normal),
+            rng.exponential(300, n_normal),
+            rng.binomial(1, 0.02, n_normal),
+            rng.normal(3.2, 0.6, n_normal),
+            rng.normal(0, 1, n_normal),
+        ]
+    ).astype(np.float32)
+
+    X_exploit = np.column_stack(
+        [
+            rng.beta(5, 1, n_exploit),
+            rng.uniform(8, 30, n_exploit),
+            rng.uniform(0.4, 0.99, n_exploit),
+            rng.uniform(0.6, 1.0, n_exploit),
+            rng.uniform(0, 30, n_exploit),
+            rng.binomial(1, 0.6, n_exploit),
+            rng.uniform(5.5, 7.5, n_exploit),
+            rng.uniform(5, 50, n_exploit),
+        ]
+    ).astype(np.float32)
+
+    n_neg = n_exploit * 10
+    X_labelled = np.vstack([X_normal[:n_neg], X_exploit])
+    y_labelled = np.array([0] * n_neg + [1] * n_exploit)
+    return X_normal, X_labelled, y_labelled
+
 
 if __name__ == "__main__":
+    from sklearn.model_selection import train_test_split
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
+    print("=== Layer 3 - Railway-safe build (numpy + scikit-learn only) ===\n")
+
+    X_normal, X_labelled, y_labelled = _make_synthetic_data()
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_labelled,
+        y_labelled,
+        test_size=0.20,
+        stratify=y_labelled,
+        random_state=42,
+    )
+
+    layer3 = Layer3MLEnsemble(bootstrap_if_missing=False)
+    layer3.fit(X_normal, X_train, y_train, X_val, y_val)
+    layer3.save_models()
+
+    layer3_reloaded = Layer3MLEnsemble(bootstrap_if_missing=False)
+    layer3_reloaded.load_models()
+
     exploit_features = {
         "graph_centrality": 0.92,
         "velocity": 18.0,
@@ -225,6 +443,20 @@ if __name__ == "__main__":
         "calldata_entropy": 3.11,
         "gas_anomaly_zscore": -0.33,
     }
-    layer3 = Layer3MLEnsemble()
-    print(json.dumps(layer3.score("0xdeadbeef", exploit_features).to_dict(), indent=2))
-    print(json.dumps(layer3.score("0xcafebabe", normal_features).to_dict(), indent=2))
+
+    exploit_result = layer3_reloaded.score("0xdeadbeef", exploit_features)
+    normal_result = layer3_reloaded.score("0xcafebabe", normal_features)
+
+    print("\n--- Exploit tx ---")
+    print(json.dumps(exploit_result.to_dict(), indent=2))
+    print("\n--- Normal tx ---")
+    print(json.dumps(normal_result.to_dict(), indent=2))
+
+    print("\n=== Routing ===")
+    for result in [exploit_result, normal_result]:
+        route = "-> Layer 4 (LLM oracle)" if result.escalate_to_llm else "-> store & skip"
+        print(
+            f"  {result.tx_hash}  score={result.ensemble_score:.3f}  "
+            f"CI=[{result.confidence_low:.3f}, {result.confidence_high:.3f}]  "
+            f"{route}  ({result.latency_ms} ms)"
+        )
