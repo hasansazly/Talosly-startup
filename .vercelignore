@@ -1,0 +1,14 @@
+backend/
+scoring/
+scripts/
+models/
+data/
+migrations/
+api/
+requirements.txt
+Dockerfile.*
+docker-compose.yml
+*.pkl
+*.log
+__pycache__/
+.pytest_cache/
