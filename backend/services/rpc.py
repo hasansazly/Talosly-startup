@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import itertools
 from typing import Any
 
@@ -11,17 +13,45 @@ class EthereumRPCClient:
 
     def __init__(self, rpc_url: str | None = None) -> None:
         self.rpc_url = rpc_url or settings.ethereum_rpc_url
+        self._request_lock = asyncio.Lock()
+        self._last_request_at = 0.0
 
     async def _call(self, method: str, params: list[Any]) -> Any:
         payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
         # Production deployments should use HTTPS RPC endpoints.
         async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(self.rpc_url, json=payload)
-            response.raise_for_status()
-            data = response.json()
+            for attempt in range(settings.ethereum_rpc_max_retries + 1):
+                await self._throttle()
+                response = await client.post(self.rpc_url, json=payload)
+                if response.status_code != 429:
+                    response.raise_for_status()
+                    data = response.json()
+                    break
+                if attempt >= settings.ethereum_rpc_max_retries:
+                    response.raise_for_status()
+                await asyncio.sleep(self._retry_delay(response, attempt))
         if "error" in data:
             raise RuntimeError(f"Talosly RPC error: {data['error'].get('message', 'unknown error')}")
         return data["result"]
+
+    async def _throttle(self) -> None:
+        min_interval = max(settings.ethereum_rpc_min_interval_seconds, 0)
+        if min_interval == 0:
+            return
+        async with self._request_lock:
+            now = asyncio.get_running_loop().time()
+            wait_seconds = self._last_request_at + min_interval - now
+            if wait_seconds > 0:
+                await asyncio.sleep(wait_seconds)
+                now = asyncio.get_running_loop().time()
+            self._last_request_at = now
+
+    def _retry_delay(self, response: httpx.Response, attempt: int) -> float:
+        retry_after = response.headers.get("retry-after")
+        if retry_after:
+            with contextlib.suppress(ValueError):
+                return min(float(retry_after), 120)
+        return min(2**attempt, 30)
 
     async def get_latest_block_number(self) -> int:
         return int(await self._call("eth_blockNumber", []), 16)
@@ -30,11 +60,23 @@ class EthereumRPCClient:
         block = await self._call("eth_getBlockByNumber", [hex(block_number), True])
         return block.get("transactions", []) if block else []
 
-    async def get_transactions_for_address(self, address: str, from_block: int, to_block: int) -> list[dict[str, Any]]:
+    async def get_transactions_for_address(
+        self,
+        address: str,
+        from_block: int,
+        to_block: int,
+        block_transactions_cache: dict[int, list[dict[str, Any]]] | None = None,
+    ) -> list[dict[str, Any]]:
         address_lower = address.lower()
         transactions: list[dict[str, Any]] = []
         for block_number in itertools.islice(range(from_block, to_block + 1), 5):
-            for tx in await self.get_block_transactions(block_number):
+            if block_transactions_cache is not None and block_number in block_transactions_cache:
+                block_transactions = block_transactions_cache[block_number]
+            else:
+                block_transactions = await self.get_block_transactions(block_number)
+                if block_transactions_cache is not None:
+                    block_transactions_cache[block_number] = block_transactions
+            for tx in block_transactions:
                 if (tx.get("to") or "").lower() == address_lower or (tx.get("from") or "").lower() == address_lower:
                     receipt = await self.get_transaction_receipt(tx["hash"])
                     tx["_receipt"] = receipt

@@ -68,10 +68,18 @@ class TaloslyWorker:
             alerts_fired = 0
             logger.info("worker.poll.start")
             protocols = await db.get_all_protocols(active_only=True)
+            try:
+                latest_block = await self.rpc.get_latest_block_number()
+            except Exception as exc:
+                self.rpc_backoff_seconds = 30 if self.rpc_backoff_seconds == 0 else min(self.rpc_backoff_seconds * 2, 120)
+                logger.error("worker.rpc.error", error=str(exc), backoff_seconds=self.rpc_backoff_seconds)
+                await asyncio.sleep(self.rpc_backoff_seconds)
+                continue
+            block_transactions_cache: dict[int, list[dict]] = {}
             for protocol in protocols:
                 protocols_checked += 1
                 try:
-                    found, alerts = await self._poll_protocol(protocol)
+                    found, alerts = await self._poll_protocol(protocol, latest_block, block_transactions_cache)
                     transactions_found += found
                     alerts_fired += alerts
                     self.rpc_backoff_seconds = 0
@@ -154,15 +162,14 @@ class TaloslyWorker:
     async def _risk_threshold(self) -> int:
         return int(await db.get_app_setting("risk_alert_threshold", settings.risk_alert_threshold))
 
-    async def _poll_protocol(self, protocol: dict) -> tuple[int, int]:
+    async def _poll_protocol(self, protocol: dict, latest_block: int, block_transactions_cache: dict[int, list[dict]]) -> tuple[int, int]:
         address = protocol["address"]
-        latest_block = await self.rpc.get_latest_block_number()
         last_seen = self.last_seen_blocks.get(address) or protocol.get("last_seen_block") or latest_block - 10
         from_block = int(last_seen) + 1
         to_block = min(latest_block, from_block + 4)
         if from_block > to_block:
             return 0, 0
-        raw_txs = await self.rpc.get_transactions_for_address(address, from_block, to_block)
+        raw_txs = await self.rpc.get_transactions_for_address(address, from_block, to_block, block_transactions_cache)
         transactions_found = 0
         alerts_fired = 0
         pre_screened_this_loop = 0

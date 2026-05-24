@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     enable_mempool_subscriber: bool = False
     etherscan_api_key: str = ""
     ethereum_rpc_url: str = "https://cloudflare-eth.com"
+    ethereum_rpc_min_interval_seconds: float = 0.25
+    ethereum_rpc_max_retries: int = 3
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     gpt_daily_spend_alert_usd: float = 5.00
