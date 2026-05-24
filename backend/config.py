@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     ethereum_blocks_per_poll: int = 1
     ethereum_initial_lookback_blocks: int = 0
     ethereum_rpc_min_interval_seconds: float = 5.0
-    ethereum_rpc_max_retries: int = 5
-    ethereum_rpc_rate_limit_backoff_seconds: int = 900
+    ethereum_rpc_max_retries: int = 1
+    ethereum_rpc_rate_limit_backoff_seconds: int = 3600
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     gpt_daily_spend_alert_usd: float = 5.00
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://talosly:talosly_secret@localhost:5432/talosly"
     database_public_url: str = ""
     postgres_password: str = ""
-    poll_interval_seconds: int = 1800
+    poll_interval_seconds: int = 3600
     risk_alert_threshold: int = 70
     backend_port: int = 8000
     frontend_url: str = "http://localhost:5173"
