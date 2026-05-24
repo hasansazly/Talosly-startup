@@ -171,6 +171,14 @@ class TaloslyWorker:
             return
         layer2_features = self.layer2.process(tx).to_dict()
         layer3_result = self.layer3.score(tx_hash, layer2_features).to_dict()
+        if not layer3_result["escalate_to_llm"]:
+            logger.info(
+                "mempool.transaction.layer3.skip",
+                protocol=protocol.get("name"),
+                tx_hash=tx_hash[:18],
+                layer3_result=layer3_result,
+            )
+            return
 
         logger.info(
             "mempool.transaction.matched",
@@ -223,6 +231,14 @@ class TaloslyWorker:
                 continue
             parsed["layer2_features"] = self.layer2.process(parsed).to_dict()
             parsed["layer3_result"] = self.layer3.score(parsed["tx_hash"], parsed["layer2_features"]).to_dict()
+            if not parsed["layer3_result"]["escalate_to_llm"]:
+                logger.info(
+                    "transaction.layer3.skip",
+                    protocol=protocol["name"],
+                    tx_hash=parsed["tx_hash"][:18],
+                    layer3_result=parsed["layer3_result"],
+                )
+                continue
 
             logger.info("transaction.fetched", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], block_number=parsed.get("block_number"))
             score_result = await self.scorer.score_transaction(parsed, protocol)
