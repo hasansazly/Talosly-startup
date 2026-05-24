@@ -62,6 +62,11 @@ class TaloslyWorker:
 
     async def _poll_loop(self) -> None:
         while self.running:
+            if not settings.enable_rpc_polling:
+                logger.info("worker.poll.disabled", reason="rpc polling disabled")
+                await asyncio.sleep(max(settings.poll_interval_seconds, 60))
+                continue
+
             started = time.perf_counter()
             protocols_checked = 0
             transactions_found = 0

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     alchemy_wss_url: str = ""
     alchemy_ws_url: str = ""
     enable_mempool_subscriber: bool = False
+    enable_rpc_polling: bool = True
     etherscan_api_key: str = ""
     ethereum_rpc_url: str = "https://cloudflare-eth.com"
     ethereum_blocks_per_poll: int = 1
