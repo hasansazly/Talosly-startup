@@ -10,9 +10,11 @@ from pydantic import ValidationError
 from backend.config import settings
 from backend.models import RiskScoreResponse
 from backend.services.etherscan import get_address_label
+from data.load_known_hacks import KnownHacksDB
 from .blacklist import BLACKLIST, EXPLOIT_TARGETS
 
 logger = logging.getLogger(__name__)
+KNOWN_HACKS = KnownHacksDB()
 
 KNOWN_SAFE_ADDRESSES = {
     "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
@@ -165,6 +167,15 @@ class TransactionScorer:
         bridge_context = self._bridge_context(transaction, input_data)
 
         # High-confidence hits return immediately to save deeper analysis costs.
+        known_hack = KNOWN_HACKS.get(tx_hash)
+        if known_hack is not None:
+            return RiskScoreResponse(
+                tx_hash=tx_hash,
+                risk_score=100,
+                risk_summary=f"Known exploit transaction: {known_hack.protocol}",
+                risk_factors=["KNOWN_EXPLOIT_TRANSACTION", known_hack.attack_type.upper()],
+            )
+
         if from_address in BLACKLIST or to_address in BLACKLIST:
             return RiskScoreResponse(
                 tx_hash=tx_hash,

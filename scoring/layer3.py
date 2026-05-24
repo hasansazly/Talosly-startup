@@ -272,8 +272,10 @@ class Layer3MLEnsemble:
         self.if_model.fit(X_normal)
         self.gbm.fit(X_labelled, y_labelled)
 
-        if X_val is not None and y_val is not None:
+        if X_val is not None and y_val is not None and len(set(y_val.tolist())) >= 2:
             self.platt.fit(self._raw_scores_batch(X_val), y_val)
+        elif X_val is not None and y_val is not None:
+            logger.warning("Skipping Platt calibration because validation data has one class.")
 
         self._ready = True
         logger.info("Layer 3 training complete.")
