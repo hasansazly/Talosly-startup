@@ -11,6 +11,10 @@ from backend.config import settings
 class EthereumRPCRateLimitError(RuntimeError):
     """Raised when the configured Ethereum RPC endpoint rejects requests."""
 
+    def __init__(self, message: str, retry_after_seconds: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
 
 class EthereumRPCClient:
     """Talosly blockchain data fetcher using JSON-RPC 2.0."""
@@ -32,8 +36,10 @@ class EthereumRPCClient:
                     data = response.json()
                     break
                 if attempt >= settings.ethereum_rpc_max_retries:
+                    retry_after_seconds = self._retry_delay(response, attempt)
                     raise EthereumRPCRateLimitError(
-                        f"Ethereum RPC rate limited method '{method}' after {attempt + 1} attempts"
+                        f"Ethereum RPC rate limited method '{method}' after {attempt + 1} attempts",
+                        retry_after_seconds=retry_after_seconds,
                     )
                 await asyncio.sleep(self._retry_delay(response, attempt))
         if "error" in data:

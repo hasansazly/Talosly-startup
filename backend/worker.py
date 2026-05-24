@@ -8,7 +8,7 @@ from backend import database as db
 from backend.config import settings
 from backend.mempool import MempoolSubscriber
 from backend.services.logger import logger
-from backend.services.rpc import EthereumRPCClient
+from backend.services.rpc import EthereumRPCClient, EthereumRPCRateLimitError
 from backend.services.scorer import TransactionScorer
 from backend.services.telegram import TelegramService
 from scoring.features import Layer2FeatureEngineering
@@ -70,8 +70,20 @@ class TaloslyWorker:
             protocols = await db.get_all_protocols(active_only=True)
             try:
                 latest_block = await self.rpc.get_latest_block_number()
+            except EthereumRPCRateLimitError as exc:
+                retry_after_seconds = getattr(exc, "retry_after_seconds", None) or 0
+                self.rpc_backoff_seconds = int(
+                    max(settings.ethereum_rpc_rate_limit_backoff_seconds, retry_after_seconds)
+                )
+                logger.error("worker.rpc.rate_limited", error=str(exc), backoff_seconds=self.rpc_backoff_seconds)
+                await asyncio.sleep(self.rpc_backoff_seconds)
+                continue
             except Exception as exc:
-                self.rpc_backoff_seconds = 30 if self.rpc_backoff_seconds == 0 else min(self.rpc_backoff_seconds * 2, 120)
+                self.rpc_backoff_seconds = (
+                    30
+                    if self.rpc_backoff_seconds == 0
+                    else min(self.rpc_backoff_seconds * 2, settings.ethereum_rpc_rate_limit_backoff_seconds)
+                )
                 logger.error("worker.rpc.error", error=str(exc), backoff_seconds=self.rpc_backoff_seconds)
                 await asyncio.sleep(self.rpc_backoff_seconds)
                 continue
@@ -84,7 +96,11 @@ class TaloslyWorker:
                     alerts_fired += alerts
                     self.rpc_backoff_seconds = 0
                 except Exception as exc:
-                    self.rpc_backoff_seconds = 30 if self.rpc_backoff_seconds == 0 else min(self.rpc_backoff_seconds * 2, 120)
+                    self.rpc_backoff_seconds = (
+                        30
+                        if self.rpc_backoff_seconds == 0
+                        else min(self.rpc_backoff_seconds * 2, settings.ethereum_rpc_rate_limit_backoff_seconds)
+                    )
                     logger.error("worker.protocol.error", protocol=protocol.get("name"), error=str(exc), backoff_seconds=self.rpc_backoff_seconds)
                     await asyncio.sleep(self.rpc_backoff_seconds)
             logger.info(
