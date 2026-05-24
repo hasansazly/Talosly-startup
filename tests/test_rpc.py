@@ -2,7 +2,7 @@ import pytest
 import httpx
 
 from backend.config import settings
-from backend.services.rpc import EthereumRPCClient
+from backend.services.rpc import EthereumRPCClient, EthereumRPCRateLimitError
 
 
 @pytest.mark.asyncio
@@ -125,3 +125,26 @@ async def test_call_retries_429(monkeypatch):
     )
 
     assert await client._call("eth_blockNumber", []) == "0x10"
+
+
+@pytest.mark.asyncio
+async def test_call_raises_sanitized_429_after_retries(monkeypatch):
+    client = EthereumRPCClient("https://example.test/secret-key")
+    monkeypatch.setattr(settings, "ethereum_rpc_min_interval_seconds", 0)
+    monkeypatch.setattr(settings, "ethereum_rpc_max_retries", 0)
+
+    async def handler(request):
+        return httpx.Response(429, json={"error": "slow down"})
+
+    original_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda timeout: original_async_client(transport=httpx.MockTransport(handler), timeout=timeout),
+    )
+
+    with pytest.raises(EthereumRPCRateLimitError) as exc:
+        await client._call("eth_blockNumber", [])
+
+    assert "eth_blockNumber" in str(exc.value)
+    assert "secret-key" not in str(exc.value)
