@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     ethereum_rpc_url: str = "https://cloudflare-eth.com"
     ethereum_blocks_per_poll: int = 1
     ethereum_initial_lookback_blocks: int = 0
-    ethereum_rpc_min_interval_seconds: float = 2.0
+    ethereum_rpc_min_interval_seconds: float = 3.0
     ethereum_rpc_max_retries: int = 5
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://talosly:talosly_secret@localhost:5432/talosly"
     database_public_url: str = ""
     postgres_password: str = ""
-    poll_interval_seconds: int = 300
+    poll_interval_seconds: int = 600
     risk_alert_threshold: int = 70
     backend_port: int = 8000
     frontend_url: str = "http://localhost:5173"
