@@ -43,6 +43,7 @@ class TaloslyWorker:
             version="0.2.0",
             environment=settings.app_env,
             poll_interval=settings.poll_interval_seconds,
+            rpc_polling=settings.enable_rpc_polling,
             risk_threshold=await self._risk_threshold(),
             database="PostgreSQL",
         )

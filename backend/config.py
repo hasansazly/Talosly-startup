@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     alchemy_wss_url: str = ""
     alchemy_ws_url: str = ""
     enable_mempool_subscriber: bool = False
-    enable_rpc_polling: bool = True
+    enable_rpc_polling: bool = False
     etherscan_api_key: str = ""
     ethereum_rpc_url: str = "https://cloudflare-eth.com"
     ethereum_blocks_per_poll: int = 1
@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     gpt_daily_spend_alert_usd: float = 5.00
     ml_gate_threshold: int = 65
     ml_confidence_gate: int = 20
+    enable_layer3_ml: bool = True
+    layer3_model_dir: str = "models"
+    layer3_escalation_threshold: float = 0.55
     model_retrain_interval_days: int = 7
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

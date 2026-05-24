@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import pickle
 import time
 from dataclasses import asdict, dataclass
@@ -25,6 +26,8 @@ from typing import Any
 import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier, IsolationForest
 from sklearn.linear_model import LogisticRegression
+
+from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +41,25 @@ FEATURE_NAMES = [
     "calldata_entropy",
     "gas_anomaly_zscore",
 ]
-ESCALATION_THRESHOLD = 0.55
-MODEL_DIR = Path("models")
+ESCALATION_THRESHOLD = settings.layer3_escalation_threshold
+MODEL_DIR = Path(settings.layer3_model_dir)
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    value = os.environ.get(key)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _current_threshold() -> float:
+    value = os.environ.get("LAYER3_ESCALATION_THRESHOLD")
+    if value is not None:
+        try:
+            return float(value)
+        except ValueError:
+            logger.warning("Invalid LAYER3_ESCALATION_THRESHOLD=%r; using settings value", value)
+    return float(settings.layer3_escalation_threshold)
 
 
 @dataclass
@@ -56,6 +76,7 @@ class EnsembleResult:
     bayesian_prob: float
     shap_top: list[dict[str, Any]]
     latency_ms: float
+    mode: str = "ml"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -240,26 +261,127 @@ class PlattScaler:
         self._lr = pickle.loads(path.read_bytes())
 
 
+class HeuristicLayer3Scorer:
+    """Pure-Python fallback scorer with the same output shape as the ML path."""
+
+    def __init__(self, base_rate: float = 0.001) -> None:
+        self.bayesian = BayesianUpdater(base_rate=base_rate)
+
+    def score(self, tx_hash: str, features: dict[str, Any]) -> EnsembleResult:
+        started = time.perf_counter()
+        clean_features = {name: features.get(name, 0.0) for name in FEATURE_NAMES}
+
+        isolation_score = self._anomaly_score(clean_features)
+        gbm_prob = self._signal_score(clean_features)
+        bayesian_prob, confidence_low, confidence_high = self.bayesian.compute(clean_features)
+        ensemble_score = round((0.25 * isolation_score) + (0.50 * gbm_prob) + (0.25 * bayesian_prob), 4)
+
+        confidence_low = round(max(min(confidence_low, ensemble_score - 0.02), 0.0), 4)
+        confidence_high = round(min(max(confidence_high, ensemble_score + 0.02), 1.0), 4)
+
+        return EnsembleResult(
+            tx_hash=tx_hash,
+            ensemble_score=ensemble_score,
+            confidence_low=confidence_low,
+            confidence_high=confidence_high,
+            escalate_to_llm=ensemble_score >= _current_threshold(),
+            isolation_score=isolation_score,
+            gbm_prob=gbm_prob,
+            bayesian_prob=bayesian_prob,
+            shap_top=self._top_signals(clean_features),
+            latency_ms=round((time.perf_counter() - started) * 1000, 2),
+            mode="heuristic",
+        )
+
+    def _anomaly_score(self, features: dict[str, Any]) -> float:
+        age_days = float(features.get("wallet_age_days") or 365)
+        signals = [
+            min(float(features.get("graph_centrality") or 0) / 0.8, 1.0),
+            min(float(features.get("velocity") or 0) / 20.0, 1.0),
+            min(float(features.get("pool_drain_ratio") or 0) / 0.5, 1.0),
+            min(float(features.get("flash_loan_fingerprint") or 0), 1.0),
+            float(bool(features.get("tornado_tagged", False))),
+            max(0.0, min((float(features.get("calldata_entropy") or 0) - 4.0) / 3.5, 1.0)),
+            max(0.0, min(float(features.get("gas_anomaly_zscore") or 0) / 20.0, 1.0)),
+            max(0.0, 1.0 - age_days / 30.0),
+        ]
+        return round(sum(signals) / len(signals), 4)
+
+    def _signal_score(self, features: dict[str, Any]) -> float:
+        weighted_score = 0.0
+        total_weight = 0.0
+
+        def add(value: float, weight: float) -> None:
+            nonlocal weighted_score, total_weight
+            weighted_score += min(max(value, 0.0), 1.0) * weight
+            total_weight += weight
+
+        age_days = float(features.get("wallet_age_days") or 365)
+        add(float(features.get("flash_loan_fingerprint") or 0), 0.25)
+        add(float(features.get("pool_drain_ratio") or 0) / 0.5, 0.20)
+        add(float(bool(features.get("tornado_tagged", False))), 0.15)
+        add(float(features.get("velocity") or 0) / 20.0, 0.12)
+        add(1.0 - age_days / 30.0, 0.10)
+        add((float(features.get("calldata_entropy") or 0) - 4.0) / 3.5, 0.08)
+        add(float(features.get("gas_anomaly_zscore") or 0) / 20.0, 0.06)
+        add(float(features.get("graph_centrality") or 0) / 0.8, 0.04)
+        return round(weighted_score / total_weight if total_weight else 0.0, 4)
+
+    def _top_signals(self, features: dict[str, Any]) -> list[dict[str, Any]]:
+        age_days = float(features.get("wallet_age_days") or 365)
+        contributions = [
+            ("flash_loan_fingerprint", float(features.get("flash_loan_fingerprint") or 0), float(features.get("flash_loan_fingerprint") or 0) * 0.25),
+            ("pool_drain_ratio", float(features.get("pool_drain_ratio") or 0), float(features.get("pool_drain_ratio") or 0) * 0.20),
+            ("tornado_tagged", float(bool(features.get("tornado_tagged", False))), float(bool(features.get("tornado_tagged", False))) * 0.15),
+            ("velocity", float(features.get("velocity") or 0), min(float(features.get("velocity") or 0) / 20.0, 1.0) * 0.12),
+            ("wallet_age_days", age_days, max(0.0, 1.0 - age_days / 30.0) * 0.10),
+        ]
+        contributions.sort(key=lambda item: abs(item[2]), reverse=True)
+        return [
+            {"feature": name, "value": round(value, 4), "shap": round(shap_value, 4)}
+            for name, value, shap_value in contributions[:3]
+        ]
+
+
 class Layer3MLEnsemble:
     """Public interface for Layer 3 training, persistence, and inference."""
 
     def __init__(
         self,
         base_rate: float = 0.001,
-        model_dir: Path = MODEL_DIR,
+        model_dir: Path | None = None,
         bootstrap_if_missing: bool = True,
+        enable_ml: bool | None = None,
     ) -> None:
         self.if_model = IsolationForestModel()
         self.gbm = GBMModel()
         self.bayesian = BayesianUpdater(base_rate=base_rate)
         self.platt = PlattScaler()
-        self.model_dir = model_dir
+        self.heuristic = HeuristicLayer3Scorer(base_rate=base_rate)
+        self.model_dir = Path(model_dir or os.environ.get("LAYER3_MODEL_DIR") or settings.layer3_model_dir)
         self._ready = False
+        self.mode = "ml"
+
+        ml_enabled = _env_bool("ENABLE_LAYER3_ML", settings.enable_layer3_ml) if enable_ml is None else enable_ml
+        if not ml_enabled:
+            self.mode = "heuristic"
+            self._ready = True
+            logger.info("Layer 3 ML disabled; using heuristic mode.")
+            return
 
         if self._model_files_exist():
-            self.load_models()
+            try:
+                self.load_models()
+            except Exception as exc:
+                self.mode = "heuristic"
+                self._ready = True
+                logger.warning("Layer 3 model load failed; using heuristic mode. error=%s", exc)
         elif bootstrap_if_missing:
             self.bootstrap_synthetic()
+        else:
+            self.mode = "heuristic"
+            self._ready = True
+            logger.warning("Layer 3 model files missing in %s; using heuristic mode.", self.model_dir)
 
     def fit(
         self,
@@ -277,6 +399,7 @@ class Layer3MLEnsemble:
         elif X_val is not None and y_val is not None:
             logger.warning("Skipping Platt calibration because validation data has one class.")
 
+        self.mode = "ml"
         self._ready = True
         logger.info("Layer 3 training complete.")
 
@@ -284,6 +407,7 @@ class Layer3MLEnsemble:
         """Train an in-memory bootstrap model so fresh deploys can score safely."""
         X_normal, X_labelled, y_labelled = _make_synthetic_data()
         self.fit(X_normal, X_labelled, y_labelled)
+        self.mode = "ml"
         logger.info("Layer 3 bootstrapped with synthetic training data.")
 
     def _raw_scores_batch(self, X: np.ndarray) -> np.ndarray:
@@ -300,6 +424,9 @@ class Layer3MLEnsemble:
         return np.array(output)
 
     def score(self, tx_hash: str, features: dict[str, Any]) -> EnsembleResult:
+        if self.mode == "heuristic":
+            return self.heuristic.score(tx_hash, features)
+
         if not self._ready:
             raise RuntimeError("Layer 3 models are not loaded or fitted.")
 
@@ -320,12 +447,13 @@ class Layer3MLEnsemble:
             ensemble_score=ensemble_score,
             confidence_low=confidence_low,
             confidence_high=confidence_high,
-            escalate_to_llm=ensemble_score >= ESCALATION_THRESHOLD,
+            escalate_to_llm=ensemble_score >= _current_threshold(),
             isolation_score=isolation_score,
             gbm_prob=gbm_prob,
             bayesian_prob=bayesian_prob,
             shap_top=self.gbm.permutation_shap(x),
             latency_ms=round((time.perf_counter() - started) * 1000, 2),
+            mode=self.mode,
         )
 
     @staticmethod
@@ -360,6 +488,7 @@ class Layer3MLEnsemble:
         platt_path = self.model_dir / "platt_scaler.pkl"
         if platt_path.exists():
             self.platt.load(platt_path)
+        self.mode = "ml"
         self._ready = True
         logger.info("Models loaded from %s", self.model_dir)
 
@@ -401,6 +530,34 @@ def _make_synthetic_data(
     X_labelled = np.vstack([X_normal[:n_neg], X_exploit])
     y_labelled = np.array([0] * n_neg + [1] * n_exploit)
     return X_normal, X_labelled, y_labelled
+
+
+_default_layer3: Layer3MLEnsemble | None = None
+
+
+def _get_default_layer3() -> Layer3MLEnsemble:
+    global _default_layer3
+    if _default_layer3 is None:
+        _default_layer3 = Layer3MLEnsemble(bootstrap_if_missing=False)
+    return _default_layer3
+
+
+def score_transaction(tx_hash: str, features: dict[str, Any]) -> dict[str, Any]:
+    """Score one transaction through the module-level Layer 3 scorer."""
+    return _get_default_layer3().score(tx_hash, features).to_dict()
+
+
+def active_mode() -> str:
+    """Return the current module-level Layer 3 mode: ``ml`` or ``heuristic``."""
+    return _get_default_layer3().mode
+
+
+def reload_models() -> str:
+    """Reload the module-level scorer and return its active mode."""
+    global _default_layer3
+    _default_layer3 = Layer3MLEnsemble(bootstrap_if_missing=False)
+    logger.info("Layer 3 reloaded; mode=%s", _default_layer3.mode)
+    return _default_layer3.mode
 
 
 if __name__ == "__main__":
