@@ -164,9 +164,11 @@ class TaloslyWorker:
 
     async def _poll_protocol(self, protocol: dict, latest_block: int, block_transactions_cache: dict[int, list[dict]]) -> tuple[int, int]:
         address = protocol["address"]
-        last_seen = self.last_seen_blocks.get(address) or protocol.get("last_seen_block") or latest_block - 10
+        initial_lookback = max(settings.ethereum_initial_lookback_blocks, 0)
+        last_seen = self.last_seen_blocks.get(address) or protocol.get("last_seen_block") or latest_block - initial_lookback
         from_block = int(last_seen) + 1
-        to_block = min(latest_block, from_block + 4)
+        blocks_per_poll = max(settings.ethereum_blocks_per_poll, 1)
+        to_block = min(latest_block, from_block + blocks_per_poll - 1)
         if from_block > to_block:
             return 0, 0
         raw_txs = await self.rpc.get_transactions_for_address(address, from_block, to_block, block_transactions_cache)
