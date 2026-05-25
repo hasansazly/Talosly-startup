@@ -1,6 +1,8 @@
 .env
 .venv/
 talosly.db
+logs/
+*.log
 *.pyc
 __pycache__/
 .pytest_cache/

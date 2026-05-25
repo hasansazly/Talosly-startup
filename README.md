@@ -205,6 +205,26 @@ Output:
 When the score crosses `RISK_ALERT_THRESHOLD`, Talosly creates an alert and can
 send a Telegram notification.
 
+Talosly also includes a structured Layer 4 oracle in `scoring/layer4.py`. It is
+called after Layer 3 escalates and before the existing scorer/alert path.
+
+Layer 4 returns:
+
+- `exploit_probability`
+- `confidence`
+- `verdict`
+- `reasoning`
+- `attack_type`
+- `sub_signals`
+- `recommended_action`
+- `cost_usd`
+- `fallback_used`
+- `layer3_score`
+
+Layer 4 is fail-open. If OpenAI is disabled, unavailable, slow, rate-limited, or
+returns malformed JSON, Talosly keeps the transaction alert-worthy instead of
+silently suppressing a possible exploit.
+
 ## Worker Behavior
 
 The real worker is `backend/worker.py`.
@@ -408,6 +428,11 @@ ETHEREUM_RPC_RATE_LIMIT_BACKOFF_SECONDS=3600
 ENABLE_LAYER3_ML=true
 LAYER3_MODEL_DIR=models
 LAYER3_ESCALATION_THRESHOLD=0.55
+LAYER4_ENABLED=true
+LAYER4_MODEL=gpt-4o-mini
+LAYER4_TIMEOUT_SECONDS=8
+LAYER4_MAX_TOKENS=600
+LAYER4_COST_LOG_FILE=logs/layer4_costs.jsonl
 
 RISK_ALERT_THRESHOLD=70
 TELEGRAM_BOT_TOKEN=...
@@ -515,6 +540,12 @@ Run focused scoring tests:
 python3 -m pytest tests/test_layer3.py tests/test_scorer.py tests/test_known_hacks.py
 ```
 
+Run Layer 4 oracle tests:
+
+```bash
+python3 -m pytest tests/test_layer4.py
+```
+
 Build frontend:
 
 ```bash
@@ -543,6 +574,7 @@ backend/
 scoring/
   features.py             Layer 2 feature extraction
   layer3.py               ML/heuristic Layer 3 router
+  layer4.py               structured Layer 4 oracle with fail-open fallback
   hybrid_engine.py        hybrid scoring experiments
   cost_tracker.py         LLM usage tracking
 
@@ -562,6 +594,7 @@ frontend/
 
 tests/
   test_layer3.py          Layer 3 routing and fallback tests
+  test_layer4.py          Layer 4 oracle and fail-open tests
   test_scorer.py          transaction scorer tests
   test_rpc.py             RPC throttle/retry tests
   test_known_hacks.py     known hacks loader tests
@@ -648,4 +681,3 @@ Talosly favors:
 - transparent logs and health checks,
 - small operational controls that can be changed quickly in Railway/Vercel,
 - test coverage around the failure modes that appeared during real deployment.
-

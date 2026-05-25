@@ -14,6 +14,7 @@ from backend.services.telegram import TelegramService
 from scoring.features import Layer2FeatureEngineering
 from scoring.filters import PreFilterManager
 from scoring.layer3 import Layer3MLEnsemble
+from scoring.layer4 import get_oracle
 
 
 class TaloslyWorker:
@@ -24,6 +25,7 @@ class TaloslyWorker:
         self.pre_filter = PreFilterManager()
         self.layer2 = Layer2FeatureEngineering()
         self.layer3 = Layer3MLEnsemble()
+        self.layer4 = get_oracle()
         self.running = True
         self.last_seen_blocks: dict[str, int] = {}
         self.rpc_backoff_seconds = 0
@@ -180,6 +182,16 @@ class TaloslyWorker:
             )
             return
 
+        layer4_result = await self.layer4.analyze(tx_hash, layer2_features, layer3_result)
+        if not layer4_result.should_alert:
+            logger.info(
+                "mempool.transaction.layer4.skip",
+                protocol=protocol.get("name"),
+                tx_hash=tx_hash[:18],
+                layer4_result=layer4_result.to_dict(),
+            )
+            return
+
         logger.info(
             "mempool.transaction.matched",
             protocol=protocol.get("name"),
@@ -187,6 +199,7 @@ class TaloslyWorker:
             to_address=to_address,
             layer2_features=layer2_features,
             layer3_result=layer3_result,
+            layer4_result=layer4_result.to_dict(),
         )
 
     async def _risk_threshold(self) -> int:
@@ -237,6 +250,35 @@ class TaloslyWorker:
                     protocol=protocol["name"],
                     tx_hash=parsed["tx_hash"][:18],
                     layer3_result=parsed["layer3_result"],
+                )
+                continue
+
+            layer4_result = await self.layer4.analyze(
+                parsed["tx_hash"],
+                parsed["layer2_features"],
+                parsed["layer3_result"],
+            )
+            parsed["layer4_result"] = layer4_result.to_dict()
+            logger.info(
+                "transaction.layer4.result",
+                protocol=protocol["name"],
+                tx_hash=parsed["tx_hash"][:18],
+                verdict=layer4_result.verdict,
+                probability=layer4_result.exploit_probability,
+                confidence=layer4_result.confidence,
+                action=layer4_result.recommended_action,
+                attack_type=layer4_result.attack_type,
+                cost_usd=layer4_result.cost_usd,
+                fallback=layer4_result.fallback_used,
+                layer3_score=layer4_result.layer3_score,
+            )
+            if not layer4_result.should_alert:
+                logger.info(
+                    "transaction.layer4.skip",
+                    protocol=protocol["name"],
+                    tx_hash=parsed["tx_hash"][:18],
+                    verdict=layer4_result.verdict,
+                    probability=layer4_result.exploit_probability,
                 )
                 continue
 

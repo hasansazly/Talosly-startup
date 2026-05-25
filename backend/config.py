@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     enable_layer3_ml: bool = True
     layer3_model_dir: str = "models"
     layer3_escalation_threshold: float = 0.55
+    layer4_enabled: bool = True
+    layer4_model: str = "gpt-4o-mini"
+    layer4_timeout_seconds: float = 8.0
+    layer4_max_tokens: int = 600
+    layer4_cost_log_file: str = "logs/layer4_costs.jsonl"
     model_retrain_interval_days: int = 7
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
