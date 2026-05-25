@@ -1,128 +1,153 @@
 # Talosly
 
-AI-powered DeFi security monitoring for early protocols.
+AI security monitoring for DeFi protocols.
 
-Talosly watches protocol contracts, filters noisy chain activity, scores suspicious
-transactions through a layered detection pipeline, and sends alerts before teams
-miss critical on-chain signals.
+Talosly watches protocol contracts, filters noisy on-chain activity, extracts
+exploit-oriented signals, uses ML and LLM reasoning only when needed, and sends
+actionable alerts before teams miss critical transactions.
 
-> Built for small DeFi teams that need a lightweight security command center
-> before they can afford enterprise monitoring.
+The product is built for early DeFi teams that cannot yet afford a full
+security operations team, but still need practical monitoring, explainable risk
+scores, alert history, and replayable evidence.
 
-## Product Snapshot
+## Alliance DAO Snapshot
 
-Talosly is a full-stack security monitoring system:
+Talosly is a security command center for small and mid-stage DeFi teams.
 
-- Add a protocol contract address.
-- Monitor Ethereum activity through a Railway worker.
-- Filter low-signal transactions before expensive analysis.
-- Extract exploit-oriented Layer 2 features.
-- Route suspicious transactions with Layer 3 ML or heuristic fallback.
-- Escalate high-risk transactions to an OpenAI-backed scorer.
-- Store transactions, risk scores, alerts, feedback, and metrics in PostgreSQL.
-- Notify teams through Telegram when risk crosses the configured threshold.
-- Expose a React dashboard for protocols, alerts, transaction history, replay, and admin controls.
+The wedge is simple: most early protocols monitor risk manually through
+Etherscan, Discord, Telegram, Twitter, and scattered dashboards. Talosly turns
+that into one operational loop:
 
-## Why This Exists
+1. Add a protocol contract.
+2. Monitor live or replayed chain activity.
+3. Filter obvious noise cheaply.
+4. Score suspicious behavior with layered ML, heuristics, and LLM analysis.
+5. Store transactions, scores, alerts, and feedback.
+6. Notify operators through Telegram.
+7. Improve detection with replay tests and known exploit data.
 
-Most early DeFi protocols do not have a dedicated security operations team.
-Their monitoring often comes from manual Etherscan checks, community messages, or
-Twitter after the exploit is already public.
+This repo is not a landing page mock. It contains the backend, frontend,
+worker, scoring stack, replay tools, tests, deployment config, and operating
+playbook used to run Talosly.
 
-Talosly aims to provide a practical middle layer:
+## Why This Matters
 
-- cheaper than enterprise monitoring,
-- faster than manual investigation,
-- understandable enough for founders and small teams,
-- extensible enough to become a serious security product.
+DeFi security is still mostly reactive for small teams. A protocol can ship with
+audits and still miss the moment a dangerous transaction touches a pool, vault,
+bridge, router, or governance contract.
 
-## Current Production Shape
+The enterprise products in this category are powerful but expensive, heavy, and
+not always built for founders who need fast setup and understandable alerts.
+Talosly starts with a narrower, practical promise:
 
-The app is split intentionally:
+- monitor the contracts a team cares about,
+- explain why a transaction looks risky,
+- alert through channels teams already use,
+- keep cost controlled through staged routing,
+- preserve enough evidence for review and model improvement.
 
-- **Vercel** serves only the static React frontend.
-- **Railway backend** runs the FastAPI API.
-- **Railway worker** runs background monitoring and alerting.
-- **PostgreSQL** stores protocols, transactions, alerts, settings, waitlist entries, and API keys.
-- **Alchemy / Ethereum RPC** is optional and can be disabled during rate-limit events.
+## Product Surface
+
+Talosly currently includes:
+
+- React dashboard for protocols, transactions, alerts, replay, and admin views.
+- FastAPI backend with API key auth, admin auth, rate limiting, and settings.
+- Railway worker for live monitoring and alerting.
+- PostgreSQL persistence for protocols, transactions, alerts, feedback, waitlist,
+  settings, API keys, and scoring metrics.
+- Telegram alert delivery with batching, retries, dedupe, and HTML fallback.
+- Replay scripts for historical exploit-style testing.
+- Known exploit transaction database and loader.
+- Layered scoring engine from cheap filters to LLM oracle.
+- Deployment split for Vercel frontend and Railway backend/worker.
+
+## System Overview
 
 ```mermaid
 flowchart LR
-  User[User Browser] --> Vercel[Vercel Static Frontend]
-  Vercel -->|VITE_API_URL /api/*| API[Railway FastAPI Backend]
-  API --> Auth[API Key and Admin Auth]
+  Founder[Protocol Founder / Security Lead] --> UI[Vercel React Dashboard]
+  UI -->|VITE_API_URL| API[Railway FastAPI API]
+  API --> Auth[API Key + Admin Auth]
   API --> DB[(PostgreSQL)]
-  API --> OpenAI[OpenAI API]
+  API --> Replay[Replay + Admin Tools]
 
   Worker[Railway Worker] --> DB
-  Worker -->|optional HTTP polling| RPC[Alchemy / Ethereum RPC]
-  Worker -->|optional mempool websocket| WS[Alchemy WebSocket]
-  Worker --> OpenAI
-  Worker --> Telegram[Telegram Bot]
+  Worker -->|optional polling| RPC[Ethereum RPC]
+  Worker -->|optional websocket| WSS[Alchemy WebSocket]
+  Worker --> Pipeline[Detection Pipeline]
+  Pipeline --> OpenAI[OpenAI Oracle]
+  Pipeline --> Telegram[Telegram Alerts]
 
-  API --> Dashboard[Dashboard Data]
-  Dashboard --> Vercel
+  Data[Known Hacks + Blacklists] --> Pipeline
+  Models[Layer 3 Models] --> Pipeline
 ```
 
-## Live API Check
+The architecture is intentionally split:
 
-The Railway backend health endpoint should return:
+- **Vercel** serves only the static frontend.
+- **Railway backend** serves `/api/*`.
+- **Railway worker** runs background monitoring and alerting.
+- **PostgreSQL** stores operational state.
+- **RPC polling** can be turned off instantly with `ENABLE_RPC_POLLING=false`.
 
-```bash
-curl https://talosly-startup-production.up.railway.app/api/health
-```
-
-```json
-{"status":"ok","service":"Talosly"}
-```
-
-The Vercel frontend should point to that backend with:
-
-```env
-VITE_API_URL=https://talosly-startup-production.up.railway.app
-```
-
-## Transaction Pipeline
-
-Talosly is designed as a staged pipeline so obvious noise is cheap, suspicious
-behavior receives more context, and expensive model/API calls are used only when
-needed.
+## End-to-End Detection Workflow
 
 ```mermaid
 sequenceDiagram
-  participant RPC as Ethereum RPC
-  participant W as Worker
-  participant L1 as Layer 1 Filter
+  participant Chain as Ethereum RPC / Replay
+  participant Worker as Talosly Worker
+  participant L1 as Layer 1 Pre-Filter
   participant L2 as Layer 2 Features
-  participant L3 as Layer 3 ML/Heuristic
-  participant L4 as Layer 4 OpenAI
+  participant L3 as Layer 3 ML Router
+  participant L4 as Layer 4 Oracle
+  participant L5 as Layer 5 Alerts
   participant DB as PostgreSQL
   participant TG as Telegram
 
-  W->>RPC: Fetch block / transaction data
-  RPC-->>W: Candidate transactions
-  W->>L1: Pre-filter transaction
-  alt safe or low-signal
-    L1-->>W: skip
-    W->>DB: store skip metadata when applicable
-  else suspicious
-    L1-->>L2: extract exploit-oriented features
-    L2-->>L3: feature vector
-    alt Layer 3 below threshold
-      L3-->>W: store and skip
-      W->>DB: save transaction + Layer 3 result
-    else Layer 3 escalates
-      L3-->>L4: hand off to scorer
-      L4-->>W: risk score 0-100
-      W->>DB: save score and alert
-      opt score >= alert threshold
-        W->>TG: send Telegram alert
+  Chain->>Worker: Candidate transaction
+  Worker->>DB: Upsert transaction
+  Worker->>L1: Cheap screening
+  alt Low signal
+    L1-->>Worker: Skip
+    Worker->>DB: Store safe state
+  else Suspicious
+    L1->>L2: Extract exploit features
+    L2->>L3: Feature vector
+    alt Below Layer 3 threshold
+      L3-->>Worker: Store and skip
+      Worker->>DB: Persist score context
+    else Escalated
+      L3->>L4: Structured oracle context
+      L4-->>Worker: Verdict, probability, confidence, attack type
+      Worker->>L4: TransactionScorer risk score
+      Worker->>L5: Final alert decision
+      L5->>DB: Save enriched score
+      opt Alert worthy
+        L5->>DB: Insert alert
+        L5->>TG: Send Telegram alert
+        L5->>DB: Mark telegram_sent
       end
     end
   end
 ```
 
-## Scoring Layers
+## Scoring Stack
+
+Talosly is built as a staged pipeline so cheap decisions happen first and
+expensive inference is reserved for higher-signal transactions.
+
+```mermaid
+flowchart TD
+  Tx[Raw Transaction] --> L1[Layer 1: Pre-Filter]
+  L1 -->|safe / dust / known safe path| Skip[Skip]
+  L1 -->|candidate| L2[Layer 2: Feature Engineering]
+  L2 --> L3[Layer 3: ML or Heuristic Router]
+  L3 -->|low score| Store[Store + Skip]
+  L3 -->|high score| L4[Layer 4: LLM Oracle + Risk Scorer]
+  L4 --> L5[Layer 5: Alert Orchestrator]
+  L5 -->|monitor| Store
+  L5 -->|alert| Alert[DB Alert + Telegram]
+```
 
 ### Layer 1: Pre-Filter
 
@@ -133,12 +158,13 @@ Examples:
 - known safe routers,
 - dust transactions,
 - routine low-risk calls,
-- safe protocol-specific behavior,
-- blacklist and known exploit target checks.
+- protocol-specific safe behavior,
+- blacklisted addresses,
+- known exploit target checks.
 
 ### Layer 2: Feature Engineering
 
-Layer 2 turns transaction context into a compact feature vector:
+Layer 2 converts transaction context into exploit-oriented features:
 
 - graph centrality,
 - sender velocity,
@@ -149,36 +175,36 @@ Layer 2 turns transaction context into a compact feature vector:
 - calldata entropy,
 - gas anomaly z-score.
 
-These features are defined in `scoring/features.py`.
+Implementation: `scoring/features.py`.
 
 ### Layer 3: ML or Heuristic Router
 
 Layer 3 decides whether a transaction deserves expensive Layer 4 analysis.
 
-It supports two runtime modes:
+Modes:
 
-- `ml`: Isolation Forest + Gradient Boosting + Bayesian updater + Platt calibration.
+- `ml`: Isolation Forest + Gradient Boosting + Bayesian updater + Platt
+  calibration.
 - `heuristic`: pure-Python fallback with the same output schema.
 
-If model files are missing or corrupt, Layer 3 automatically falls back to
-heuristic mode instead of crashing the worker.
+If model files are missing or corrupt, the worker falls back to heuristic mode
+instead of crashing.
 
 ```mermaid
 flowchart TD
-  Tx[Layer 2 Feature Vector] --> Enabled{ENABLE_LAYER3_ML?}
+  Features[Layer 2 Features] --> Enabled{ENABLE_LAYER3_ML?}
   Enabled -- false --> Heuristic[Heuristic Fallback]
-  Enabled -- true --> Models{Model files valid?}
-  Models -- yes --> ML[Isolation Forest + GBM + Bayesian + Platt]
-  Models -- no --> Heuristic
-  ML --> Result[ensemble_score + mode=ml]
-  Heuristic --> Result2[ensemble_score + mode=heuristic]
+  Enabled -- true --> Files{Model files valid?}
+  Files -- yes --> ML[Isolation Forest + GBM + Bayesian + Platt]
+  Files -- no --> Heuristic
+  ML --> Result[ensemble_score + shap_top + mode]
+  Heuristic --> Result
   Result --> Gate{score >= LAYER3_ESCALATION_THRESHOLD}
-  Result2 --> Gate
-  Gate -- yes --> Layer4[Layer 4 / OpenAI]
   Gate -- no --> Skip[Store and skip]
+  Gate -- yes --> Oracle[Layer 4 Oracle]
 ```
 
-Layer 3 result fields include:
+Layer 3 fields:
 
 - `ensemble_score`
 - `confidence_low`
@@ -191,24 +217,12 @@ Layer 3 result fields include:
 - `mode`
 - `latency_ms`
 
-### Layer 4: OpenAI Risk Scoring
+### Layer 4: Structured Oracle
 
-Layer 4 uses the existing `TransactionScorer` to produce a human-readable risk
-score and explanation.
+Layer 4 receives Layer 2 features and Layer 3 signals, then returns a structured
+security assessment.
 
-Output:
-
-- `risk_score`: 0-100
-- `risk_summary`
-- `risk_factors`
-
-When the score crosses `RISK_ALERT_THRESHOLD`, Talosly creates an alert and can
-send a Telegram notification.
-
-Talosly also includes a structured Layer 4 oracle in `scoring/layer4.py`. It is
-called after Layer 3 escalates and before the existing scorer/alert path.
-
-Layer 4 returns:
+Fields:
 
 - `exploit_probability`
 - `confidence`
@@ -221,102 +235,66 @@ Layer 4 returns:
 - `fallback_used`
 - `layer3_score`
 
-Layer 4 is fail-open. If OpenAI is disabled, unavailable, slow, rate-limited, or
+Layer 4 is fail-open: if OpenAI is disabled, slow, rate-limited, unavailable, or
 returns malformed JSON, Talosly keeps the transaction alert-worthy instead of
 silently suppressing a possible exploit.
 
-### Layer 5: Alert Orchestration
+Implementation: `scoring/layer4.py`.
 
-Layer 5 is the final alert gateway in `scoring/layer5.py`. It centralizes the
-worker's DB persistence and Telegram delivery while reusing the existing
-`backend.database` and `TelegramService` contracts.
+### Layer 4 Risk Scorer
 
-Layer 5 handles:
+The existing `TransactionScorer` produces the final human-readable risk object:
+
+```python
+{
+    "tx_hash": "0x...",
+    "risk_score": 0-100,
+    "risk_summary": "...",
+    "risk_factors": ["..."]
+}
+```
+
+Implementation: `backend/services/scorer.py`.
+
+### Layer 5: Alert Orchestrator
+
+Layer 5 centralizes the final alert decision and delivery.
+
+It handles:
 
 - final threshold routing,
 - Layer 4 score enrichment,
 - high-confidence benign suppression,
-- fail-open Layer 4 fallback alerts,
+- fail-open fallback alerts,
 - same-transaction dedupe,
-- DB score persistence,
+- score persistence,
 - alert row creation,
-- Telegram send and `telegram_sent` marking.
+- Telegram send,
+- `telegram_sent` marking.
 
-It returns an `AlertProcessResult` so the worker can still update metrics such
-as `alerts_fired` without duplicating alert logic.
+Implementation: `scoring/layer5.py`.
 
-## Worker Behavior
+## Data and Feedback Loop
 
-The real worker is `backend/worker.py`.
-
-Layer 3 is wired into the real worker:
-
-- imported from `scoring.layer3`,
-- initialized as `self.layer3 = Layer3MLEnsemble()`,
-- used in mempool handling,
-- used in RPC polling before OpenAI scoring.
-
-Low Layer 3 scores are stored/skipped. High Layer 3 scores proceed toward the
-Layer 4 oracle, the current `TransactionScorer`, and finally Layer 5 alert
-orchestration.
-
-## Alchemy Rate-Limit Protection
-
-During production testing, Alchemy returned `429 Too Many Requests` even for
-`eth_blockNumber`. Talosly now has multiple protections:
-
-- sanitized RPC errors that do not leak the Alchemy URL or API key,
-- request throttling,
-- bounded retries,
-- long cooldown after hard `429`,
-- block transaction cache per poll,
-- configurable blocks per poll,
-- no startup backfill by default,
-- full emergency switch with `ENABLE_RPC_POLLING=false`.
-
-Recommended worker settings while quota is recovering:
-
-```env
-ENABLE_RPC_POLLING=false
-POLL_INTERVAL_SECONDS=3600
-ETHEREUM_BLOCKS_PER_POLL=1
-ETHEREUM_INITIAL_LOOKBACK_BLOCKS=0
-ETHEREUM_RPC_MIN_INTERVAL_SECONDS=5.0
-ETHEREUM_RPC_MAX_RETRIES=1
-ETHEREUM_RPC_RATE_LIMIT_BACKOFF_SECONDS=3600
+```mermaid
+flowchart LR
+  Incidents[Known Exploits] --> Known[data/known_hacks.jsonl]
+  Known --> Loader[data/load_known_hacks.py]
+  Loader --> PreScreen[Known exploit pre-screen]
+  Replay[Replay Suites] --> Tests[Pytest + Backtests]
+  Alerts[Alert Feedback] --> DB[(PostgreSQL)]
+  DB --> Training[Layer 3 Training]
+  Training --> Models[models/*.pkl]
+  Models --> Worker[Worker Runtime]
 ```
 
-Expected logs when RPC polling is disabled:
+Talosly includes:
 
-```text
-worker.start ... rpc_polling=false
-worker.poll.disabled
-```
-
-If `worker.rpc.rate_limited` still appears after redeploy, an old worker process
-or another service is still using the same Alchemy key.
-
-## Known Hacks Dataset
-
-Talosly includes a local known-exploit transaction database:
-
-- `data/known_hacks.jsonl`
-- `data/load_known_hacks.py`
-
-The loader accepts JSONL records and plain transaction hash lines, validates
-real `0x` + 64-hex transaction hashes, and exposes O(1) lookup.
-
-Check stats:
-
-```bash
-python3 data/load_known_hacks.py stats
-```
-
-Check a hash:
-
-```bash
-python3 data/load_known_hacks.py check 0x...
-```
+- `data/known_hacks.jsonl` for confirmed exploit hashes,
+- `data/load_known_hacks.py` for O(1) exploit lookup and CLI updates,
+- `scripts/train_layer3.py` for offline Layer 3 training,
+- replay scripts for validating detection behavior,
+- alert feedback endpoints for human review.
 
 Add a confirmed incident:
 
@@ -330,24 +308,7 @@ python3 data/load_known_hacks.py add \
   --source "ChainSec"
 ```
 
-The service uses this database in pre-screening. A known exploit transaction is
-immediately scored as high-risk without needing an OpenAI call.
-
-## Layer 3 Training
-
-Offline training lives in:
-
-- `scripts/train_layer3.py`
-- `data/transactions.jsonl`
-- `data/known_hacks.jsonl`
-
-Smoke-test with synthetic data:
-
-```bash
-python3 scripts/train_layer3.py --synthetic
-```
-
-Train with local historical data:
+Train Layer 3:
 
 ```bash
 python3 scripts/train_layer3.py \
@@ -356,33 +317,75 @@ python3 scripts/train_layer3.py \
   --model-dir models/
 ```
 
-The trainer prints:
+Smoke-test training:
 
-- classification report,
-- AUC-ROC,
-- AUC-PR,
-- best F1 threshold,
-- current threshold.
-
-Use the printed best threshold to tune:
-
-```env
-LAYER3_ESCALATION_THRESHOLD=0.55
+```bash
+python3 scripts/train_layer3.py --synthetic
 ```
 
-Model files:
+## Dashboard and API
 
-- `models/isolation_forest.pkl`
-- `models/gbm.pkl`
-- `models/platt_scaler.pkl`
+The frontend provides:
+
+- protocol monitoring,
+- transaction history,
+- alert history,
+- replay workflow,
+- admin settings,
+- system status.
+
+The backend exposes:
+
+- health checks,
+- protocol CRUD,
+- transaction scoring,
+- alert listing,
+- alert feedback,
+- waitlist and admin routes.
+
+Health check:
+
+```bash
+curl https://talosly-startup-production.up.railway.app/api/health
+```
+
+Expected:
+
+```json
+{"status":"ok","service":"Talosly"}
+```
+
+Product routes require:
+
+```text
+Authorization: Bearer tals_xxxxx
+```
+
+Admin routes require:
+
+```text
+X-Admin-Secret: your_admin_secret
+```
 
 ## Deployment
+
+```mermaid
+flowchart TD
+  GitHub[GitHub Repo] --> Vercel[Vercel Frontend Deploy]
+  GitHub --> RailwayAPI[Railway API Service]
+  GitHub --> RailwayWorker[Railway Worker Service]
+  RailwayAPI --> DB[(Railway PostgreSQL)]
+  RailwayWorker --> DB
+  RailwayWorker --> Telegram[Telegram Bot]
+  RailwayWorker --> OpenAI[OpenAI API]
+  RailwayWorker -. optional .-> RPC[Ethereum RPC]
+```
 
 ### Vercel Frontend
 
 Vercel should deploy only the React frontend.
 
-Required Vercel variable:
+Required variable:
 
 ```env
 VITE_API_URL=https://talosly-startup-production.up.railway.app
@@ -398,19 +401,12 @@ Vercel build settings:
 }
 ```
 
-The `.vercelignore` file excludes backend, ML, model, and runtime files from
-Vercel. This prevents the static frontend deploy from bundling Python
-dependencies like `numpy` and `scikit-learn`.
-
-Local frontend build size is small:
-
-```text
-frontend/dist ~= 264K
-```
+`.vercelignore` excludes backend, ML, model, and runtime files so Vercel does
+not bundle Python dependencies like `numpy` and `scikit-learn`.
 
 ### Railway Backend
 
-The Railway backend runs FastAPI and serves `/api/*`.
+The backend serves FastAPI.
 
 Important variables:
 
@@ -424,17 +420,11 @@ FRONTEND_URL=https://your-vercel-domain.vercel.app
 PUBLIC_URL=https://talosly-startup-production.up.railway.app
 ```
 
-Health check:
-
-```bash
-curl https://talosly-startup-production.up.railway.app/api/health
-```
-
 ### Railway Worker
 
-The Railway worker runs `backend/worker.py`.
+The worker runs `backend/worker.py`.
 
-Recommended current variables:
+Safe current variables:
 
 ```env
 ENABLE_RPC_POLLING=false
@@ -449,11 +439,13 @@ ETHEREUM_RPC_RATE_LIMIT_BACKOFF_SECONDS=3600
 ENABLE_LAYER3_ML=true
 LAYER3_MODEL_DIR=models
 LAYER3_ESCALATION_THRESHOLD=0.55
+
 LAYER4_ENABLED=true
 LAYER4_MODEL=gpt-4o-mini
 LAYER4_TIMEOUT_SECONDS=8
 LAYER4_MAX_TOKENS=600
 LAYER4_COST_LOG_FILE=logs/layer4_costs.jsonl
+
 LAYER5_DEDUPE_WINDOW_S=300
 LAYER5_CONFIDENCE_GATE=true
 
@@ -462,65 +454,59 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 ```
 
-When you are ready to resume chain polling:
+Expected healthy idle logs:
+
+```text
+worker.start ... rpc_polling=false
+worker.poll.disabled ... reason="rpc polling disabled"
+```
+
+To resume live polling:
 
 ```env
 ENABLE_RPC_POLLING=true
 ```
 
-Use one worker replica unless you intentionally want multiple consumers sharing
-the same RPC quota.
+Use one worker replica unless multiple consumers are intentionally sharing RPC
+quota.
 
-## API
+## RPC Safety and Rate Limits
 
-Health and waitlist routes are public.
+During production testing, Alchemy returned `429 Too Many Requests` even for
+`eth_blockNumber`. Talosly now includes:
 
-Product routes require:
+- RPC polling kill switch,
+- sanitized RPC errors that do not leak keys,
+- bounded retries,
+- long cooldown after hard rate limit,
+- per-request throttling,
+- block transaction cache,
+- configurable block range,
+- no startup backfill by default.
+
+If the worker logs `worker.rpc.rate_limited`, set:
+
+```env
+ENABLE_RPC_POLLING=false
+```
+
+Then redeploy the Railway worker. The correct idle log is:
 
 ```text
-Authorization: Bearer tals_xxxxx
-```
-
-Admin routes require:
-
-```text
-X-Admin-Secret: your_admin_secret
-```
-
-Examples:
-
-```bash
-curl https://talosly-startup-production.up.railway.app/api/health
-```
-
-```bash
-curl -X POST https://talosly-startup-production.up.railway.app/api/protocols \
-  -H "Authorization: Bearer tals_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Uniswap V3", "address": "0xE592427A0AEce92De3Edee1F18E0157C05861564"}'
-```
-
-```bash
-curl "https://talosly-startup-production.up.railway.app/api/transactions?protocol_id=1" \
-  -H "Authorization: Bearer tals_xxxxx"
-```
-
-```bash
-curl https://talosly-startup-production.up.railway.app/api/alerts \
-  -H "Authorization: Bearer tals_xxxxx"
+worker.poll.disabled
 ```
 
 ## Local Development
 
 Prerequisites:
 
-- Docker and Docker Compose
-- Node.js
 - Python 3.11+
+- Node.js
+- Docker and Docker Compose
 - PostgreSQL or Docker Compose
-- Alchemy API key if RPC polling is enabled
-- OpenAI API key if Layer 4 scoring is enabled
-- Telegram bot token and chat ID if alert delivery is enabled
+- OpenAI API key for live LLM scoring
+- Telegram bot token and chat ID for live notifications
+- Alchemy/RPC key only if live polling is enabled
 
 Setup:
 
@@ -549,7 +535,7 @@ Open locally:
 - Dashboard: `http://localhost/dashboard`
 - Admin: `http://localhost/admin`
 
-## Development Checks
+## Testing and Verification
 
 Run all tests:
 
@@ -557,22 +543,18 @@ Run all tests:
 python3 -m pytest
 ```
 
-Run focused scoring tests:
+Current full suite status:
 
-```bash
-python3 -m pytest tests/test_layer3.py tests/test_scorer.py tests/test_known_hacks.py
+```text
+101 passed
 ```
 
-Run Layer 4 oracle tests:
+Focused checks:
 
 ```bash
-python3 -m pytest tests/test_layer4.py
-```
-
-Run Layer 5 alert orchestration tests:
-
-```bash
-python3 -m pytest tests/test_layer5.py
+python3 -m pytest tests/test_layer3.py tests/test_layer4.py tests/test_layer5.py
+python3 -m pytest tests/test_scorer.py tests/test_rpc.py tests/test_known_hacks.py
+python3 -m pytest tests/test_telegram.py tests/test_api.py
 ```
 
 Build frontend:
@@ -581,132 +563,120 @@ Build frontend:
 cd frontend && npm run build
 ```
 
-Train Layer 3 smoke model:
+Replay or demo flows:
 
 ```bash
-python3 scripts/train_layer3.py --synthetic --model-dir /private/tmp/talosly-layer3-models
+python3 replay_suite.py
+python3 replay_hack.py
 ```
 
 ## Project Structure
 
 ```text
 backend/
-  main.py                 FastAPI app
-  worker.py               background monitoring worker
+  main.py                  FastAPI app
+  worker.py                monitoring worker
+  database.py              PostgreSQL access layer
+  config.py                environment settings
   services/
-    scorer.py             Layer 4 / OpenAI risk scoring
-    rpc.py                Ethereum RPC client with backoff
-    telegram.py           alert delivery
-    blacklist.py          malicious addresses and exploit targets
-  routers/                API routers
+    scorer.py              risk scoring and pre-screening
+    rpc.py                 Ethereum RPC client with backoff
+    telegram.py            Telegram delivery and batching
+    blacklist.py           malicious addresses and exploit targets
+  routers/                 API routes
 
 scoring/
-  features.py             Layer 2 feature extraction
-  layer3.py               ML/heuristic Layer 3 router
-  layer4.py               structured Layer 4 oracle with fail-open fallback
-  hybrid_engine.py        hybrid scoring experiments
-  cost_tracker.py         LLM usage tracking
+  features.py              Layer 2 feature extraction
+  layer3.py                ML/heuristic router
+  layer4.py                structured LLM oracle
+  layer5.py                alert orchestrator
+  hybrid_engine.py         hybrid scoring experiments
+  cost_tracker.py          LLM usage tracking
 
 data/
-  known_hacks.jsonl       known exploit transaction hashes
-  load_known_hacks.py     dataset loader and CLI
-  transactions.jsonl      sample training data
+  known_hacks.jsonl        known exploit transaction hashes
+  load_known_hacks.py      known-hacks loader and CLI
+  transactions.jsonl       sample training data
 
 scripts/
-  train_layer3.py         offline Layer 3 training
-  init_db.py              database initialization
-  create_api_key.py       API key creation
+  train_layer3.py          offline model training
+  init_db.py               database initialization
+  create_api_key.py        API key creation
 
 frontend/
-  src/                    React dashboard and landing page
-  dist/                   Vite production output
+  src/
+    pages/                 dashboard, replay, admin, alerts
+    components/            UI components
 
 tests/
-  test_layer3.py          Layer 3 routing and fallback tests
-  test_layer4.py          Layer 4 oracle and fail-open tests
-  test_scorer.py          transaction scorer tests
-  test_rpc.py             RPC throttle/retry tests
-  test_known_hacks.py     known hacks loader tests
+  test_layer3.py           Layer 3 routing and fallback tests
+  test_layer4.py           Layer 4 oracle tests
+  test_layer5.py           alert orchestration tests
+  test_rpc.py              RPC rate-limit behavior
+  test_scorer.py           scorer behavior
+  test_telegram.py         Telegram delivery behavior
 ```
 
-## Troubleshooting
+## What Is Working Now
 
-### Alchemy 429
+- Railway backend health endpoint is live.
+- Vercel frontend builds as a static app.
+- Worker boots in production.
+- RPC polling can be safely disabled.
+- Known exploit DB loads.
+- Blacklist loads.
+- Layer 3 bootstraps and scores.
+- Layer 4 has structured fail-open behavior.
+- Layer 5 centralizes alert persistence and Telegram delivery.
+- Full test suite passes locally.
 
-Symptoms:
+## What Comes Next
 
-```text
-worker.rpc.rate_limited
-Ethereum RPC rate limited method 'eth_blockNumber'
-```
+Near-term product work:
 
-Fix:
+- Add more verified historical exploit hashes.
+- Run structured replay suites against known incidents.
+- Expand protocol-specific parsers.
+- Add alert detail views for Layer 3/4/5 explanations.
+- Persist Layer 3 and Layer 4 metadata in richer DB columns.
+- Improve wallet and contract reputation signals.
+- Add per-protocol alert policies.
 
-```env
-ENABLE_RPC_POLLING=false
-```
+Near-term business work:
 
-Then redeploy the Railway worker. If the log continues, stop old worker replicas
-or rotate the Alchemy key.
+- Record a concise Loom demo.
+- Onboard a small number of design partners.
+- Validate alert quality with historical and live protocol traffic.
+- Convert replay evidence into case studies.
+- Package Talosly as a lightweight DeFi security co-pilot.
 
-### Vercel Bundle Too Large
+## Alliance DAO Application Framing
 
-Symptoms:
+Talosly is a fit for Alliance DAO because it is infrastructure for crypto-native
+teams, built around a real operational pain: early-stage DeFi protocols need
+security monitoring before they have security headcount.
 
-```text
-Total bundle size exceeds the size limit
-```
+The product has a narrow wedge, a clear buyer, and room to compound:
 
-Fix:
+- start with monitored contracts and Telegram alerts,
+- become the dashboard for protocol risk operations,
+- use replay and feedback to improve detection,
+- expand from Ethereum to multi-chain monitoring,
+- package risk intelligence for protocols, funds, auditors, and ecosystems.
 
-- Vercel must not install Python dependencies.
-- Use frontend-only install command.
-- Keep `.vercelignore` excluding backend, scoring, data, models, and requirements.
+The core bet is that AI security tools should not be generic chatbots. They
+should be embedded in deterministic pipelines, use structured chain features,
+fail safely, and create evidence operators can act on.
 
-### Frontend Cannot Reach API
-
-Check Vercel variable:
-
-```env
-VITE_API_URL=https://talosly-startup-production.up.railway.app
-```
-
-Then redeploy Vercel.
-
-### Layer 3 Model Missing
-
-This is safe. The worker falls back to heuristic mode.
-
-Check logs for:
-
-```text
-Layer 3 model files missing ... using heuristic mode
-```
-
-## Current Status
-
-Talosly v0.2.0 is a beta launch build. It is designed for:
-
-- early protocol monitoring,
-- founder demos,
-- accelerator applications,
-- low-cost security experiments,
-- iterative development toward a stronger DeFi security product.
-
-The system is intentionally built with clear escape hatches:
-
-- disable RPC polling when quota is tight,
-- fall back to heuristics when model files are unavailable,
-- keep Vercel frontend separate from backend ML dependencies,
-- route expensive OpenAI calls only after lower-cost filters.
-
-## Engineering Principles
+## Operating Principle
 
 Talosly favors:
 
-- graceful degradation over crashes,
-- cheap filters before expensive inference,
-- explicit deployment boundaries,
-- transparent logs and health checks,
-- small operational controls that can be changed quickly in Railway/Vercel,
-- test coverage around the failure modes that appeared during real deployment.
+- layered detection over one-shot prediction,
+- explainability over black-box alerts,
+- cost gates before expensive inference,
+- fail-open behavior for high-risk paths,
+- replayable evidence,
+- simple deployment controls,
+- fast iteration with real users.
+
