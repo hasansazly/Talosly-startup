@@ -225,6 +225,26 @@ Layer 4 is fail-open. If OpenAI is disabled, unavailable, slow, rate-limited, or
 returns malformed JSON, Talosly keeps the transaction alert-worthy instead of
 silently suppressing a possible exploit.
 
+### Layer 5: Alert Orchestration
+
+Layer 5 is the final alert gateway in `scoring/layer5.py`. It centralizes the
+worker's DB persistence and Telegram delivery while reusing the existing
+`backend.database` and `TelegramService` contracts.
+
+Layer 5 handles:
+
+- final threshold routing,
+- Layer 4 score enrichment,
+- high-confidence benign suppression,
+- fail-open Layer 4 fallback alerts,
+- same-transaction dedupe,
+- DB score persistence,
+- alert row creation,
+- Telegram send and `telegram_sent` marking.
+
+It returns an `AlertProcessResult` so the worker can still update metrics such
+as `alerts_fired` without duplicating alert logic.
+
 ## Worker Behavior
 
 The real worker is `backend/worker.py`.
@@ -237,7 +257,8 @@ Layer 3 is wired into the real worker:
 - used in RPC polling before OpenAI scoring.
 
 Low Layer 3 scores are stored/skipped. High Layer 3 scores proceed toward the
-current Layer 4 scorer.
+Layer 4 oracle, the current `TransactionScorer`, and finally Layer 5 alert
+orchestration.
 
 ## Alchemy Rate-Limit Protection
 
@@ -433,6 +454,8 @@ LAYER4_MODEL=gpt-4o-mini
 LAYER4_TIMEOUT_SECONDS=8
 LAYER4_MAX_TOKENS=600
 LAYER4_COST_LOG_FILE=logs/layer4_costs.jsonl
+LAYER5_DEDUPE_WINDOW_S=300
+LAYER5_CONFIDENCE_GATE=true
 
 RISK_ALERT_THRESHOLD=70
 TELEGRAM_BOT_TOKEN=...
@@ -544,6 +567,12 @@ Run Layer 4 oracle tests:
 
 ```bash
 python3 -m pytest tests/test_layer4.py
+```
+
+Run Layer 5 alert orchestration tests:
+
+```bash
+python3 -m pytest tests/test_layer5.py
 ```
 
 Build frontend:
