@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     layer4_timeout_seconds: float = 8.0
     layer4_max_tokens: int = 600
     layer4_cost_log_file: str = "logs/layer4_costs.jsonl"
+    layer5_dedupe_window_s: int = 300
+    layer5_confidence_gate: bool = True
     model_retrain_interval_days: int = 7
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

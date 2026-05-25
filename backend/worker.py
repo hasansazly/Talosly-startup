@@ -15,6 +15,7 @@ from scoring.features import Layer2FeatureEngineering
 from scoring.filters import PreFilterManager
 from scoring.layer3 import Layer3MLEnsemble
 from scoring.layer4 import get_oracle
+from scoring.layer5 import AlertOrchestrator
 
 
 class TaloslyWorker:
@@ -26,6 +27,7 @@ class TaloslyWorker:
         self.layer2 = Layer2FeatureEngineering()
         self.layer3 = Layer3MLEnsemble()
         self.layer4 = get_oracle()
+        self.layer5 = AlertOrchestrator(db, self.telegram)
         self.running = True
         self.last_seen_blocks: dict[str, int] = {}
         self.rpc_backoff_seconds = 0
@@ -288,20 +290,36 @@ class TaloslyWorker:
                 pre_screened_this_loop += 1
             else:
                 openai_scored_this_loop += 1
-            await db.update_transaction_score(tx_id, score_result.risk_score, score_result.risk_summary, score_result.risk_factors)
-            logger.info("transaction.scored", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], risk_score=score_result.risk_score)
-            if score_result.risk_score >= await self._risk_threshold():
-                alert_id = await db.insert_alert(tx_id, score_result.risk_score, score_result.risk_summary)
+            layer5_result = await self.layer5.process(
+                tx_id=tx_id,
+                protocol=protocol,
+                transaction=parsed,
+                score_result=score_result,
+                layer3=parsed.get("layer3_result"),
+                layer4=layer4_result,
+                threshold=await self._risk_threshold(),
+            )
+            logger.info(
+                "transaction.scored",
+                protocol=protocol["name"],
+                tx_hash=parsed["tx_hash"][:18],
+                risk_score=layer5_result.decision.enriched_score,
+                layer5_reason=layer5_result.decision.reason,
+            )
+            if layer5_result.alert_created:
                 alerts_fired += 1
-                logger.info("alert.created", alert_id=alert_id, risk_score=score_result.risk_score, tx_hash=parsed["tx_hash"][:18])
-                sent = await self.telegram.send_alert(protocol, parsed, score_result)
-                if sent:
-                    await db.mark_telegram_sent(alert_id)
-                    logger.info("alert.telegram.sent", alert_id=alert_id)
+                logger.info(
+                    "alert.created",
+                    alert_id=layer5_result.alert_id,
+                    risk_score=layer5_result.decision.enriched_score,
+                    tx_hash=parsed["tx_hash"][:18],
+                )
+                if layer5_result.telegram_sent:
+                    logger.info("alert.telegram.sent", alert_id=layer5_result.alert_id)
                 elif getattr(self.telegram, "last_send_suppressed", False):
-                    logger.info("alert.telegram.suppressed", alert_id=alert_id)
+                    logger.info("alert.telegram.suppressed", alert_id=layer5_result.alert_id)
                 else:
-                    logger.warning("alert.telegram.failed", alert_id=alert_id)
+                    logger.warning("alert.telegram.failed", alert_id=layer5_result.alert_id)
         self.last_seen_blocks[address] = to_block
         await db.update_protocol_last_seen(protocol["id"], to_block)
 
