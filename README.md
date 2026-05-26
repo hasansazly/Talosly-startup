@@ -72,8 +72,8 @@ flowchart LR
   API --> Replay[Replay + Admin Tools]
 
   Worker[Railway Worker] --> DB
-  Worker -->|optional polling| RPC[Ethereum RPC]
-  Worker -->|optional websocket| WSS[Alchemy WebSocket]
+  Worker -->|Layer 0 optional polling| RPC[Ethereum RPC]
+  Worker -->|Layer 0 optional websocket| WSS[Alchemy WebSocket]
   Worker --> Pipeline[Detection Pipeline]
   Pipeline --> OpenAI[OpenAI Oracle]
   Pipeline --> Telegram[Telegram Alerts]
@@ -89,6 +89,8 @@ The architecture is intentionally split:
 - **Railway worker** runs background monitoring and alerting.
 - **PostgreSQL** stores operational state.
 - **RPC polling** can be turned off instantly with `ENABLE_RPC_POLLING=false`.
+- **Layer 0 ingestion** covers raw RPC block polling and Alchemy mempool
+  subscriptions before filtering, features, and scoring.
 
 ## End-to-End Detection Workflow
 
@@ -96,6 +98,7 @@ The architecture is intentionally split:
 sequenceDiagram
   participant Chain as Ethereum RPC / Replay
   participant Worker as Talosly Worker
+  participant L0 as Layer 0 Ingestion
   participant L1 as Layer 1 Pre-Filter
   participant L2 as Layer 2 Features
   participant L3 as Layer 3 ML Router
@@ -104,7 +107,8 @@ sequenceDiagram
   participant DB as PostgreSQL
   participant TG as Telegram
 
-  Chain->>Worker: Candidate transaction
+  Chain->>L0: Raw block or mempool transaction
+  L0->>Worker: Candidate transaction
   Worker->>DB: Upsert transaction
   Worker->>L1: Cheap screening
   alt Low signal
@@ -162,6 +166,11 @@ Examples:
 - blacklisted addresses,
 - known exploit target checks.
 
+The scoring pre-filter uses a real probabilistic Bloom filter for address
+blacklist membership (`pybloom-live`, capacity 100,000, false-positive rate
+0.1%). The backend service blacklist remains a plain Python set for exact
+application-level lookups.
+
 ### Layer 2: Feature Engineering
 
 Layer 2 converts transaction context into exploit-oriented features:
@@ -183,19 +192,20 @@ Layer 3 decides whether a transaction deserves expensive Layer 4 analysis.
 
 Modes:
 
-- `ml`: Isolation Forest + Gradient Boosting + Bayesian updater + Platt
+- `ml`: Isolation Forest + XGBoost classifier + Bayesian updater + Platt
   calibration.
 - `heuristic`: pure-Python fallback with the same output schema.
 
-If model files are missing or corrupt, the worker falls back to heuristic mode
-instead of crashing.
+If model files are missing, corrupt, or from the older Gradient Boosting format,
+the worker falls back to heuristic mode instead of crashing. Retraining writes
+XGBoost-backed model payloads through joblib.
 
 ```mermaid
 flowchart TD
   Features[Layer 2 Features] --> Enabled{ENABLE_LAYER3_ML?}
   Enabled -- false --> Heuristic[Heuristic Fallback]
   Enabled -- true --> Files{Model files valid?}
-  Files -- yes --> ML[Isolation Forest + GBM + Bayesian + Platt]
+  Files -- yes --> ML[Isolation Forest + XGBoost + Bayesian + Platt]
   Files -- no --> Heuristic
   ML --> Result[ensemble_score + shap_top + mode]
   Heuristic --> Result
@@ -216,6 +226,9 @@ Layer 3 fields:
 - `shap_top`
 - `mode`
 - `latency_ms`
+
+`shap_top` contains the top Layer 3 risk signals and is surfaced in the
+frontend transaction detail modal as a compact signal breakdown when available.
 
 ### Layer 4: Structured Oracle
 
@@ -292,7 +305,7 @@ Talosly includes:
 
 - `data/known_hacks.jsonl` for confirmed exploit hashes,
 - `data/load_known_hacks.py` for O(1) exploit lookup and CLI updates,
-- `scripts/train_layer3.py` for offline Layer 3 training,
+- `scripts/train_layer3.py` for offline XGBoost Layer 3 training,
 - replay scripts for validating detection behavior,
 - alert feedback endpoints for human review.
 
@@ -330,6 +343,7 @@ The frontend provides:
 - protocol monitoring,
 - transaction history,
 - alert history,
+- Layer 3 top risk signal breakdowns in transaction details,
 - replay workflow,
 - admin settings,
 - system status.
@@ -458,7 +472,15 @@ Expected healthy idle logs:
 
 ```text
 worker.start ... rpc_polling=false
+worker.layer0.rpc.start
 worker.poll.disabled ... reason="rpc polling disabled"
+```
+
+When the Alchemy mempool subscriber is enabled and a websocket URL is present,
+Layer 0 also logs:
+
+```text
+worker.layer0.mempool.start
 ```
 
 To resume live polling:
@@ -476,6 +498,7 @@ During production testing, Alchemy returned `429 Too Many Requests` even for
 `eth_blockNumber`. Talosly now includes:
 
 - RPC polling kill switch,
+- optional Alchemy pending-transaction websocket ingestion,
 - sanitized RPC errors that do not leak keys,
 - bounded retries,
 - long cooldown after hard rate limit,
@@ -586,8 +609,9 @@ backend/
   routers/                 API routes
 
 scoring/
+  filters.py              Layer 1 pre-filter with Bloom-filter blacklist
   features.py              Layer 2 feature extraction
-  layer3.py                ML/heuristic router
+  layer3.py                XGBoost ML/heuristic router
   layer4.py                structured LLM oracle
   layer5.py                alert orchestrator
   hybrid_engine.py         hybrid scoring experiments
@@ -599,7 +623,7 @@ data/
   transactions.jsonl       sample training data
 
 scripts/
-  train_layer3.py          offline model training
+  train_layer3.py          offline XGBoost model training
   init_db.py               database initialization
   create_api_key.py        API key creation
 
@@ -679,4 +703,3 @@ Talosly favors:
 - replayable evidence,
 - simple deployment controls,
 - fast iteration with real users.
-
