@@ -65,7 +65,12 @@ class TaloslyWorker:
         finally:
             await self.shutdown("stop requested")
 
+    # Layer 0 — raw data ingestion
+    #
+    # Pull confirmed on-chain transactions through the configured Ethereum RPC
+    # source before later filtering, feature extraction, and scoring layers run.
     async def _poll_loop(self) -> None:
+        logger.info("worker.layer0.rpc.start")
         while self.running:
             if not settings.enable_rpc_polling:
                 logger.info("worker.poll.disabled", reason="rpc polling disabled")
@@ -133,7 +138,12 @@ class TaloslyWorker:
         await db.close_db()
         logger.info("worker.stopped")
 
+    # Layer 0 — raw data ingestion
+    #
+    # Subscribe to pending transactions from the configured Alchemy websocket
+    # source before later filtering, feature extraction, and scoring layers run.
     async def _run_mempool_subscriber(self) -> None:
+        logger.info("worker.layer0.mempool.start")
         protocols = await db.get_all_protocols(active_only=True)
         self.mempool_protocols = {
             protocol["address"].lower(): protocol
