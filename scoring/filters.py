@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from pybloom_live import BloomFilter
+
 try:
     from web3 import Web3
 except ImportError:
@@ -24,16 +26,16 @@ except ImportError:
 
 
 class _AddressBloomFilter:
-    """Set-backed Bloom Filter facade used by the pre-filter blacklist."""
+    """Probabilistic Bloom Filter facade used by the pre-filter blacklist."""
 
-    def __init__(self) -> None:
-        self._items: set[str] = set()
+    def __init__(self, capacity: int = 100_000, error_rate: float = 0.001) -> None:
+        self._filter = BloomFilter(capacity=capacity, error_rate=error_rate)
 
     def add(self, value: str) -> None:
-        self._items.add(value)
+        self._filter.add(value)
 
     def __contains__(self, value: str) -> bool:
-        return value in self._items
+        return value in self._filter
 
 
 class TransactionPreFilter:
