@@ -542,6 +542,49 @@ th {
 .modal-section ul {
   padding-left: 18px;
 }
+.risk-signal-section {
+  border-top: 1px solid rgba(56,189,248,0.12);
+  padding-top: 12px;
+}
+.risk-signal-list {
+  display: grid;
+  gap: 10px;
+}
+.risk-signal-row {
+  display: grid;
+  gap: 6px;
+}
+.risk-signal-meta {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+.risk-signal-meta span {
+  color: #cbd5e1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+}
+.risk-signal-meta code {
+  color: #64748b;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.risk-signal-bar {
+  background: rgba(56,189,248,0.08);
+  border: 1px solid rgba(56,189,248,0.12);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+.risk-signal-bar span {
+  background: linear-gradient(90deg, #38bdf8, #fbbf24, #f87171);
+  display: block;
+  height: 100%;
+}
 .system-status-panel {
   background: rgba(13,19,32,0.74);
   border: 1px solid rgba(56,189,248,0.12);
