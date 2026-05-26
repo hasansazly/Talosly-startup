@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline training pipeline for the Talosly Layer 3 ensemble."""
+"""Offline training pipeline for the Talosly Layer 3 XGBoost ensemble."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ log = logging.getLogger("train_layer3")
 
 
 def build_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train Layer 3 ML ensemble")
+    parser = argparse.ArgumentParser(description="Train Layer 3 XGBoost ML ensemble")
     parser.add_argument("--tx-file", type=Path, help="JSONL of historical transactions")
     parser.add_argument("--hack-file", type=Path, default=Path("data/known_hacks.jsonl"))
     parser.add_argument("--model-dir", type=Path, default=Path("models"))

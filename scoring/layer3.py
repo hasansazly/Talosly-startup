@@ -1,10 +1,9 @@
 """Layer 3 ML ensemble for transaction exploit routing.
 
-Railway-safe build: only numpy + scikit-learn are required. The ensemble keeps
-the 3-model architecture without xgboost, shap, or joblib:
+The ensemble keeps the 3-model architecture:
 
 1. Isolation Forest        - unsupervised anomaly score
-2. Gradient Boosting (GBM) - supervised binary classifier
+2. XGBoost (GBM slot)      - supervised binary classifier
 3. Bayesian Updater        - sequential prior x likelihood
 
 The public output is a calibrated score in [0, 1]. Scores >= 0.55 escalate to
@@ -17,15 +16,16 @@ import json
 import logging
 import math
 import os
-import pickle
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+import joblib
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier, IsolationForest
+from sklearn.ensemble import IsolationForest
 from sklearn.linear_model import LogisticRegression
+from xgboost import DMatrix, XGBClassifier
 
 from backend.config import settings
 
@@ -111,15 +111,15 @@ class IsolationForestModel:
         return round(float(np.clip(0.5 - raw, 0.0, 1.0)), 4)
 
     def save(self, path: Path) -> None:
-        path.write_bytes(pickle.dumps(self.model))
+        joblib.dump(self.model, path)
 
     def load(self, path: Path) -> None:
-        self.model = pickle.loads(path.read_bytes())
+        self.model = joblib.load(path)
         self._fitted = True
 
 
 class GBMModel:
-    """sklearn GradientBoostingClassifier with lightweight permutation SHAP."""
+    """XGBClassifier wrapper kept behind the existing GBM compatibility name."""
 
     def __init__(
         self,
@@ -128,21 +128,29 @@ class GBMModel:
         learning_rate: float = 0.05,
         random_state: int = 42,
     ) -> None:
-        self.model = GradientBoostingClassifier(
+        self.model = XGBClassifier(
             n_estimators=n_estimators,
             max_depth=max_depth,
             learning_rate=learning_rate,
             subsample=0.8,
+            colsample_bytree=0.9,
+            objective="binary:logistic",
+            eval_metric="logloss",
             random_state=random_state,
+            n_jobs=-1,
         )
         self._feature_means: np.ndarray | None = None
         self._fitted = False
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+        positives = int(y.sum())
+        negatives = int(len(y) - positives)
+        if positives > 0:
+            self.model.set_params(scale_pos_weight=max(negatives / positives, 1.0))
         self.model.fit(X, y)
         self._feature_means = X.mean(axis=0)
         self._fitted = True
-        logger.info("GBM fitted on %d samples (%d positives)", len(y), int(y.sum()))
+        logger.info("XGBoost fitted on %d samples (%d positives)", len(y), positives)
 
     def predict_proba(self, x: np.ndarray) -> float:
         if not self._fitted:
@@ -153,6 +161,27 @@ class GBMModel:
         if not self._fitted or self._feature_means is None:
             return []
 
+        try:
+            contributions = self._xgboost_shap(x)
+        except Exception as exc:
+            logger.debug("XGBoost SHAP failed; falling back to feature masking. error=%s", exc)
+            contributions = self._feature_masking_contributions(x)
+
+        contributions.sort(key=lambda item: abs(item[2]), reverse=True)
+        return [
+            {"feature": name, "value": round(value, 4), "shap": round(shap_value, 4)}
+            for name, value, shap_value in contributions[:top_n]
+        ]
+
+    def _xgboost_shap(self, x: np.ndarray) -> list[tuple[str, float, float]]:
+        matrix = DMatrix(x.reshape(1, -1))
+        shap_values = self.model.get_booster().predict(matrix, pred_contribs=True)[0][:-1]
+        return [
+            (feature_name, float(x[index]), float(shap_values[index]))
+            for index, feature_name in enumerate(FEATURE_NAMES)
+        ]
+
+    def _feature_masking_contributions(self, x: np.ndarray) -> list[tuple[str, float, float]]:
         baseline_prob = self.predict_proba(x)
         contributions = []
         for index, feature_name in enumerate(FEATURE_NAMES):
@@ -161,18 +190,17 @@ class GBMModel:
             masked_prob = self.predict_proba(x_masked)
             shap_value = round(baseline_prob - masked_prob, 4)
             contributions.append((feature_name, float(x[index]), shap_value))
-
-        contributions.sort(key=lambda item: abs(item[2]), reverse=True)
-        return [
-            {"feature": name, "value": round(value, 4), "shap": shap_value}
-            for name, value, shap_value in contributions[:top_n]
-        ]
+        return contributions
 
     def save(self, path: Path) -> None:
-        path.write_bytes(pickle.dumps({"model": self.model, "means": self._feature_means}))
+        joblib.dump({"model_type": "xgboost", "model": self.model, "means": self._feature_means}, path)
 
     def load(self, path: Path) -> None:
-        payload = pickle.loads(path.read_bytes())
+        payload = joblib.load(path)
+        if not isinstance(payload, dict) or payload.get("model_type") != "xgboost":
+            raise ValueError("Layer 3 GBM model is not an XGBoost payload.")
+        if not isinstance(payload.get("model"), XGBClassifier):
+            raise ValueError("Layer 3 GBM model is not an XGBClassifier.")
         self.model = payload["model"]
         self._feature_means = payload["means"]
         self._fitted = True
@@ -255,10 +283,10 @@ class PlattScaler:
 
     def save(self, path: Path) -> None:
         if self._lr is not None:
-            path.write_bytes(pickle.dumps(self._lr))
+            joblib.dump(self._lr, path)
 
     def load(self, path: Path) -> None:
-        self._lr = pickle.loads(path.read_bytes())
+        self._lr = joblib.load(path)
 
 
 class HeuristicLayer3Scorer:
