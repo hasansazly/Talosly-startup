@@ -157,9 +157,17 @@ flowchart TD
 
 Layer 1 rejects obvious safe or low-value paths before heavier work.
 
+Operational profile:
+
+- O(1) per transaction,
+- zero LLM cost,
+- intended to run before feature extraction or model inference.
+
 Examples:
 
 - known safe routers,
+- selector whitelist checks,
+- high-value movement threshold checks,
 - dust transactions,
 - routine low-risk calls,
 - protocol-specific safe behavior,
@@ -195,6 +203,13 @@ Modes:
 - `ml`: Isolation Forest + XGBoost classifier + Bayesian updater + Platt
   calibration.
 - `heuristic`: pure-Python fallback with the same output schema.
+
+Operational profile:
+
+- no LLM cost,
+- Isolation Forest anomaly score: approximately 1 ms per transaction,
+- XGBoost classifier probability: approximately 3 ms per transaction,
+- Bayesian update: approximately 0.1 ms per transaction.
 
 If model files are missing, corrupt, or from the older Gradient Boosting format,
 the worker falls back to heuristic mode instead of crashing. Retraining writes
@@ -234,6 +249,11 @@ frontend transaction detail modal as a compact signal breakdown when available.
 
 Layer 4 receives Layer 2 features and Layer 3 signals, then returns a structured
 security assessment.
+
+Layer 4 is intentionally conditional and expensive relative to the earlier
+layers. In the target routing profile, only about 5% of transactions reach the
+oracle path, with an approximate marginal LLM cost around $0.02 per analyzed
+transaction depending on model, token use, and provider pricing.
 
 Fields:
 
@@ -283,7 +303,8 @@ It handles:
 - score persistence,
 - alert row creation,
 - Telegram send,
-- `telegram_sent` marking.
+- `telegram_sent` marking,
+- `/v1/risk` oracle API output for downstream consumers.
 
 Implementation: `scoring/layer5.py`.
 
