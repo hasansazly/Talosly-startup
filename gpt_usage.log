@@ -2,3 +2,4 @@
 {"call_saved": true, "cost_usd": 7.5e-05, "input_tokens": 500, "output_tokens": 0, "protocol": "0xtest", "score_delta": 0, "timestamp": "2026-05-20T03:17:12.266525+00:00"}
 {"call_saved": true, "cost_usd": 7.5e-05, "input_tokens": 500, "output_tokens": 0, "protocol": "0xtest", "score_delta": 0, "timestamp": "2026-05-21T15:49:22.026465+00:00"}
 {"call_saved": true, "cost_usd": 7.5e-05, "input_tokens": 500, "output_tokens": 0, "protocol": "0xtest", "score_delta": 0, "timestamp": "2026-05-26T16:56:15.026335+00:00"}
+{"call_saved": true, "cost_usd": 7.5e-05, "input_tokens": 500, "output_tokens": 0, "protocol": "0xtest", "score_delta": 0, "timestamp": "2026-05-26T18:10:48.860379+00:00"}
