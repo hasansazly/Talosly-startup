@@ -10,7 +10,7 @@ The product is built for early DeFi teams that cannot yet afford a full
 security operations team, but still need practical monitoring, explainable risk
 scores, alert history, and replayable evidence.
 
-## Alliance DAO Snapshot
+## Product Snapshot
 
 Talosly is a security command center for small and mid-stage DeFi teams.
 
@@ -695,11 +695,11 @@ Near-term business work:
 - Convert replay evidence into case studies.
 - Package Talosly as a lightweight DeFi security co-pilot.
 
-## Alliance DAO Application Framing
+## Market Positioning
 
-Talosly is a fit for Alliance DAO because it is infrastructure for crypto-native
-teams, built around a real operational pain: early-stage DeFi protocols need
-security monitoring before they have security headcount.
+Talosly is infrastructure for crypto-native teams, built around a real
+operational pain: early-stage DeFi protocols need security monitoring before
+they have security headcount.
 
 The product has a narrow wedge, a clear buyer, and room to compound:
 
