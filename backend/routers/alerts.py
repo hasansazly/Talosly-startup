@@ -8,14 +8,14 @@ router = APIRouter(dependencies=[Depends(verify_api_key)])
 
 
 @router.get("", response_model=list[AlertResponse])
-async def list_alerts(limit: int = Query(100, ge=1, le=500)):
-    alerts = await db.get_alerts(limit)
+async def list_alerts(limit: int = Query(100, ge=1, le=500), api_key: dict = Depends(verify_api_key)):
+    alerts = await db.get_alerts(limit, owner_api_key_id=api_key["id"])
     return [{**alert, "telegram_sent": bool(alert["telegram_sent"])} for alert in alerts]
 
 
 @router.get("/stats")
-async def alert_stats():
-    return await db.get_alert_stats()
+async def alert_stats(api_key: dict = Depends(verify_api_key)):
+    return await db.get_alert_stats(owner_api_key_id=api_key["id"])
 
 
 @router.post("/{alert_id}/feedback")

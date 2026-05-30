@@ -127,6 +127,7 @@ async def _create_tables() -> None:
                 last_alert_message_id BIGINT,
                 alert_batch_count INTEGER NOT NULL DEFAULT 0,
                 last_alert_severity TEXT,
+                owner_api_key_id INTEGER REFERENCES api_keys(id),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """
@@ -135,6 +136,7 @@ async def _create_tables() -> None:
         await conn.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS last_alert_message_id BIGINT")
         await conn.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS alert_batch_count INTEGER NOT NULL DEFAULT 0")
         await conn.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS last_alert_severity TEXT")
+        await conn.execute("ALTER TABLE protocols ADD COLUMN IF NOT EXISTS owner_api_key_id INTEGER")
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS transactions (
@@ -290,17 +292,27 @@ async def _create_tables() -> None:
             )
 
 
-async def insert_protocol(name: str, address: str) -> int:
+async def insert_protocol(name: str, address: str, owner_api_key_id: int | None = None) -> int:
     pool = await get_pool()
-    return await pool.fetchval("INSERT INTO protocols (name, address) VALUES ($1, $2) RETURNING id", name, address)
+    return await pool.fetchval(
+        "INSERT INTO protocols (name, address, owner_api_key_id) VALUES ($1, $2, $3) RETURNING id",
+        name,
+        address,
+        owner_api_key_id,
+    )
 
 
-async def get_all_protocols(active_only: bool = False) -> list[dict[str, Any]]:
+async def get_all_protocols(active_only: bool = False, owner_api_key_id: int | None = None) -> list[dict[str, Any]]:
     pool = await get_pool()
+    filters = []
+    args: list[Any] = []
     if active_only:
-        rows = await pool.fetch("SELECT * FROM protocols WHERE is_active = TRUE ORDER BY created_at DESC")
-    else:
-        rows = await pool.fetch("SELECT * FROM protocols ORDER BY created_at DESC")
+        filters.append("is_active = TRUE")
+    if owner_api_key_id is not None:
+        args.append(owner_api_key_id)
+        filters.append(f"owner_api_key_id = ${len(args)}")
+    where = f"WHERE {' AND '.join(filters)}" if filters else ""
+    rows = await pool.fetch(f"SELECT * FROM protocols {where} ORDER BY created_at DESC", *args)
     return [dict(row) for row in rows]
 
 
@@ -309,28 +321,47 @@ async def get_protocol(protocol_id: int) -> dict[str, Any] | None:
     return _record_to_dict(await pool.fetchrow("SELECT * FROM protocols WHERE id = $1", protocol_id))
 
 
+async def get_protocol_for_owner(protocol_id: int, owner_api_key_id: int) -> dict[str, Any] | None:
+    pool = await get_pool()
+    return _record_to_dict(
+        await pool.fetchrow(
+            "SELECT * FROM protocols WHERE id = $1 AND owner_api_key_id = $2",
+            protocol_id,
+            owner_api_key_id,
+        )
+    )
+
+
 async def get_protocol_by_address(address: str) -> dict[str, Any] | None:
     pool = await get_pool()
     return _record_to_dict(await pool.fetchrow("SELECT * FROM protocols WHERE lower(address) = lower($1)", address))
 
 
-async def delete_protocol(protocol_id: int) -> bool:
+async def delete_protocol(protocol_id: int, owner_api_key_id: int | None = None) -> bool:
     pool = await get_pool()
-    status = await pool.execute("DELETE FROM protocols WHERE id = $1", protocol_id)
+    if owner_api_key_id is None:
+        status = await pool.execute("DELETE FROM protocols WHERE id = $1", protocol_id)
+    else:
+        status = await pool.execute("DELETE FROM protocols WHERE id = $1 AND owner_api_key_id = $2", protocol_id, owner_api_key_id)
     return status.endswith("1")
 
 
-async def toggle_protocol(protocol_id: int) -> dict[str, Any] | None:
+async def toggle_protocol(protocol_id: int, owner_api_key_id: int | None = None) -> dict[str, Any] | None:
     pool = await get_pool()
+    owner_filter = ""
+    args: list[Any] = [protocol_id]
+    if owner_api_key_id is not None:
+        args.append(owner_api_key_id)
+        owner_filter = "AND owner_api_key_id = $2"
     return _record_to_dict(
         await pool.fetchrow(
-            """
+            f"""
             UPDATE protocols
             SET is_active = NOT is_active
-            WHERE id = $1
+            WHERE id = $1 {owner_filter}
             RETURNING *
             """,
-            protocol_id,
+            *args,
         )
     )
 
@@ -474,17 +505,34 @@ async def submit_alert_feedback(alert_id: int, confirmed_threat: bool, feedback_
     return status.endswith("1")
 
 
-async def get_recent_transactions(protocol_id: int | None = None, limit: int = 50) -> list[dict[str, Any]]:
+async def get_recent_transactions(
+    protocol_id: int | None = None,
+    limit: int = 50,
+    owner_api_key_id: int | None = None,
+) -> list[dict[str, Any]]:
     pool = await get_pool()
     limit = min(max(limit, 1), 200)
+    filters = []
+    args: list[Any] = []
     if protocol_id is not None:
-        rows = await pool.fetch(
-            "SELECT * FROM transactions WHERE protocol_id = $1 ORDER BY fetched_at DESC LIMIT $2",
-            protocol_id,
-            limit,
-        )
-    else:
-        rows = await pool.fetch("SELECT * FROM transactions ORDER BY fetched_at DESC LIMIT $1", limit)
+        args.append(protocol_id)
+        filters.append(f"transactions.protocol_id = ${len(args)}")
+    if owner_api_key_id is not None:
+        args.append(owner_api_key_id)
+        filters.append(f"protocols.owner_api_key_id = ${len(args)}")
+    where = f"WHERE {' AND '.join(filters)}" if filters else ""
+    args.append(limit)
+    rows = await pool.fetch(
+        f"""
+        SELECT transactions.*
+        FROM transactions
+        JOIN protocols ON protocols.id = transactions.protocol_id
+        {where}
+        ORDER BY transactions.fetched_at DESC
+        LIMIT ${len(args)}
+        """,
+        *args,
+    )
     return [dict(row) for row in rows]
 
 
@@ -493,11 +541,17 @@ async def get_transaction_by_hash(tx_hash: str) -> dict[str, Any] | None:
     return _record_to_dict(await pool.fetchrow("SELECT * FROM transactions WHERE tx_hash = $1", tx_hash))
 
 
-async def get_alerts(limit: int = 100) -> list[dict[str, Any]]:
+async def get_alerts(limit: int = 100, owner_api_key_id: int | None = None) -> list[dict[str, Any]]:
     pool = await get_pool()
     limit = min(max(limit, 1), 500)
+    args: list[Any] = []
+    owner_filter = ""
+    if owner_api_key_id is not None:
+        args.append(owner_api_key_id)
+        owner_filter = f"WHERE protocols.owner_api_key_id = ${len(args)}"
+    args.append(limit)
     rows = await pool.fetch(
-        """
+        f"""
         SELECT
             alerts.id, alerts.transaction_id, transactions.tx_hash,
             protocols.name AS protocol_name, alerts.risk_score,
@@ -506,24 +560,38 @@ async def get_alerts(limit: int = 100) -> list[dict[str, Any]]:
         FROM alerts
         JOIN transactions ON transactions.id = alerts.transaction_id
         JOIN protocols ON protocols.id = transactions.protocol_id
+        {owner_filter}
         ORDER BY alerts.created_at DESC
-        LIMIT $1
+        LIMIT ${len(args)}
         """,
-        limit,
+        *args,
     )
     return [dict(row) for row in rows]
 
 
-async def get_alert_stats() -> dict[str, int]:
+async def get_alert_stats(owner_api_key_id: int | None = None) -> dict[str, int]:
     pool = await get_pool()
-    row = await pool.fetchrow(
+    owner_join = ""
+    owner_filter = ""
+    args: list[Any] = []
+    if owner_api_key_id is not None:
+        owner_join = """
+        JOIN transactions ON transactions.id = alerts.transaction_id
+        JOIN protocols ON protocols.id = transactions.protocol_id
         """
+        args.append(owner_api_key_id)
+        owner_filter = "WHERE protocols.owner_api_key_id = $1"
+    row = await pool.fetchrow(
+        f"""
         SELECT
             COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE) AS today,
             COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS this_week,
             COUNT(*) AS all_time
         FROM alerts
-        """
+        {owner_join}
+        {owner_filter}
+        """,
+        *args,
     )
     return {"today": row["today"], "this_week": row["this_week"], "all_time": row["all_time"]}
 

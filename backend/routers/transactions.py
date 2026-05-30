@@ -9,22 +9,32 @@ router = APIRouter(dependencies=[Depends(verify_api_key)])
 
 
 @router.get("", response_model=list[TransactionResponse])
-async def list_transactions(protocol_id: int | None = None, limit: int = Query(50, ge=1, le=200)):
-    return await db.get_recent_transactions(protocol_id, limit)
+async def list_transactions(
+    protocol_id: int | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    api_key: dict = Depends(verify_api_key),
+):
+    if protocol_id is not None and not await db.get_protocol_for_owner(protocol_id, api_key["id"]):
+        raise HTTPException(status_code=404, detail={"error": "Protocol not found", "detail": str(protocol_id)})
+    return await db.get_recent_transactions(protocol_id, limit, owner_api_key_id=api_key["id"])
 
 
 @router.get("/{tx_hash}", response_model=TransactionResponse)
-async def get_transaction(tx_hash: str):
+async def get_transaction(tx_hash: str, api_key: dict = Depends(verify_api_key)):
     tx = await db.get_transaction_by_hash(tx_hash)
     if not tx:
+        raise HTTPException(status_code=404, detail={"error": "Transaction not found", "detail": tx_hash})
+    if not await db.get_protocol_for_owner(tx["protocol_id"], api_key["id"]):
         raise HTTPException(status_code=404, detail={"error": "Transaction not found", "detail": tx_hash})
     return tx
 
 
 @router.post("/{tx_hash}/score", response_model=RiskScoreResponse)
-async def score_transaction(tx_hash: str):
+async def score_transaction(tx_hash: str, api_key: dict = Depends(verify_api_key)):
     tx = await db.get_transaction_by_hash(tx_hash)
     if not tx:
+        raise HTTPException(status_code=404, detail={"error": "Transaction not found", "detail": tx_hash})
+    if not await db.get_protocol_for_owner(tx["protocol_id"], api_key["id"]):
         raise HTTPException(status_code=404, detail={"error": "Transaction not found", "detail": tx_hash})
     protocol = await db.get_protocol(tx["protocol_id"])
     scorer = TransactionScorer()
