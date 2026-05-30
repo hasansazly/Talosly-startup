@@ -169,11 +169,12 @@ class TaloslyWorker:
         if not tx_hash or not protocol:
             return
 
+        parsed = self._parse_mempool_transaction(tx)
         tx_data = {
-            "to": tx.get("to"),
-            "from": tx.get("from"),
-            "input": tx.get("input", "0x"),
-            "value": tx.get("value", 0),
+            "to": parsed.get("to_address"),
+            "from": parsed.get("from_address"),
+            "input": parsed.get("input_data", "0x"),
+            "value": parsed.get("value_eth", 0),
         }
         should_escalate, filter_reason = self.pre_filter.should_evaluate(tx_data)
         if not should_escalate:
@@ -183,7 +184,7 @@ class TaloslyWorker:
                 reason=filter_reason,
             )
             return
-        layer2_features = self.layer2.process(tx).to_dict()
+        layer2_features = self.layer2.process(parsed).to_dict()
         layer3_result = self.layer3.score(tx_hash, layer2_features).to_dict()
         if not layer3_result["escalate_to_llm"]:
             logger.info(
@@ -204,6 +205,15 @@ class TaloslyWorker:
             )
             return
 
+        tx_id, is_new = await db.upsert_transaction(protocol["id"], parsed)
+        if not is_new:
+            logger.info(
+                "mempool.transaction.duplicate",
+                protocol=protocol.get("name"),
+                tx_hash=tx_hash[:18],
+            )
+            return
+
         logger.info(
             "mempool.transaction.matched",
             protocol=protocol.get("name"),
@@ -213,6 +223,66 @@ class TaloslyWorker:
             layer3_result=layer3_result,
             layer4_result=layer4_result.to_dict(),
         )
+        score_result = await self.scorer.score_transaction(parsed, protocol)
+        layer5_result = await self.layer5.process(
+            tx_id=tx_id,
+            protocol=protocol,
+            transaction=parsed,
+            score_result=score_result,
+            layer3=layer3_result,
+            layer4=layer4_result,
+            threshold=await self._risk_threshold(),
+        )
+        logger.info(
+            "mempool.transaction.scored",
+            protocol=protocol.get("name"),
+            tx_hash=tx_hash[:18],
+            risk_score=layer5_result.decision.enriched_score,
+            layer5_reason=layer5_result.decision.reason,
+        )
+        if layer5_result.alert_created:
+            logger.info(
+                "mempool.alert.created",
+                alert_id=layer5_result.alert_id,
+                risk_score=layer5_result.decision.enriched_score,
+                tx_hash=tx_hash[:18],
+            )
+            if layer5_result.telegram_sent:
+                logger.info("mempool.alert.telegram.sent", alert_id=layer5_result.alert_id)
+            elif getattr(self.telegram, "last_send_suppressed", False):
+                logger.info("mempool.alert.telegram.suppressed", alert_id=layer5_result.alert_id)
+            else:
+                logger.warning("mempool.alert.telegram.failed", alert_id=layer5_result.alert_id)
+
+    def _parse_mempool_transaction(self, tx: dict) -> dict:
+        value_wei = self._parse_hex_int(tx.get("value"))
+        gas_value = tx.get("gas") or tx.get("gasLimit")
+        gas_price_wei = self._parse_hex_int(tx.get("gasPrice") or tx.get("maxFeePerGas"))
+        return {
+            "tx_hash": tx.get("hash"),
+            "block_number": None,
+            "from_address": tx.get("from"),
+            "to_address": tx.get("to"),
+            "value_eth": value_wei / 10**18,
+            "gas_used": self._parse_hex_int(gas_value),
+            "gas_price_gwei": gas_price_wei / 10**9 if gas_price_wei else 0,
+            "input_data": (tx.get("input") or "")[:500],
+            "status": None,
+            "logs": [],
+        }
+
+    @staticmethod
+    def _parse_hex_int(value: object) -> int:
+        if value is None or isinstance(value, bool):
+            return 0
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value, 16) if value.startswith("0x") else int(value)
+            except ValueError:
+                return 0
+        return 0
 
     async def _risk_threshold(self) -> int:
         return int(await db.get_app_setting("risk_alert_threshold", settings.risk_alert_threshold))
