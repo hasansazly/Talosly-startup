@@ -63,6 +63,13 @@ class Settings(BaseSettings):
             return f"wss://eth-mainnet.g.alchemy.com/v2/{self.alchemy_api_key}"
         return ""
 
+    @computed_field
+    @property
+    def ethereum_http_url(self) -> str:
+        if "${ALCHEMY_API_KEY}" in self.ethereum_rpc_url and self.alchemy_api_key:
+            return self.ethereum_rpc_url.replace("${ALCHEMY_API_KEY}", self.alchemy_api_key)
+        return self.ethereum_rpc_url
+
     @model_validator(mode="after")
     def validate_launch_settings(self):
         if self.app_env == "production" and len(self.admin_secret) < 32:

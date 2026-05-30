@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import itertools
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -20,9 +21,23 @@ class EthereumRPCClient:
     """Talosly blockchain data fetcher using JSON-RPC 2.0."""
 
     def __init__(self, rpc_url: str | None = None) -> None:
-        self.rpc_url = rpc_url or settings.ethereum_rpc_url
+        self.rpc_url = rpc_url or settings.ethereum_http_url
         self._request_lock = asyncio.Lock()
         self._last_request_at = 0.0
+
+    def sanitized_rpc_url(self) -> str:
+        try:
+            parsed = urlsplit(self.rpc_url)
+        except ValueError:
+            return "<invalid>"
+        if not parsed.scheme or not parsed.netloc:
+            return "<invalid>"
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) >= 2 and parts[-2] == "v2":
+            path = "/" + "/".join([*parts[:-1], "<redacted>"])
+        else:
+            path = parsed.path or ""
+        return f"{parsed.scheme}://{parsed.netloc}{path}"
 
     async def _call(self, method: str, params: list[Any]) -> Any:
         payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}

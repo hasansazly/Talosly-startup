@@ -66,6 +66,21 @@ def test_parse_transaction_preserves_receipt_logs_for_scorer_context():
     assert parsed["logs"] == [{"address": "0xlog", "topics": ["0xtopic"], "data": "0x1"}]
 
 
+def test_rpc_client_uses_resolved_settings_url(monkeypatch):
+    monkeypatch.setattr(settings, "ethereum_rpc_url", "https://example.test/v2/${ALCHEMY_API_KEY}")
+    monkeypatch.setattr(settings, "alchemy_api_key", "resolved-key")
+
+    client = EthereumRPCClient()
+
+    assert client.rpc_url == "https://example.test/v2/resolved-key"
+
+
+def test_sanitized_rpc_url_redacts_alchemy_key():
+    client = EthereumRPCClient("https://eth-mainnet.g.alchemy.com/v2/secret-key")
+
+    assert client.sanitized_rpc_url() == "https://eth-mainnet.g.alchemy.com/v2/<redacted>"
+
+
 @pytest.mark.asyncio
 async def test_get_transactions_for_address_reuses_block_cache(monkeypatch):
     client = EthereumRPCClient()
