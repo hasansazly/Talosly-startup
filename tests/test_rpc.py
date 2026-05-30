@@ -148,3 +148,26 @@ async def test_call_raises_sanitized_429_after_retries(monkeypatch):
 
     assert "eth_blockNumber" in str(exc.value)
     assert "secret-key" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_call_includes_method_for_json_rpc_error(monkeypatch):
+    client = EthereumRPCClient("https://example.test/secret-key")
+    monkeypatch.setattr(settings, "ethereum_rpc_min_interval_seconds", 0)
+
+    async def handler(request):
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "error": {"message": "Cannot fulfill request"}})
+
+    original_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda timeout: original_async_client(transport=httpx.MockTransport(handler), timeout=timeout),
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        await client._call("eth_blockNumber", [])
+
+    assert "eth_blockNumber" in str(exc.value)
+    assert "Cannot fulfill request" in str(exc.value)
+    assert "secret-key" not in str(exc.value)

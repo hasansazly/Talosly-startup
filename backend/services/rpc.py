@@ -43,7 +43,8 @@ class EthereumRPCClient:
                     )
                 await asyncio.sleep(self._retry_delay(response, attempt))
         if "error" in data:
-            raise RuntimeError(f"Talosly RPC error: {data['error'].get('message', 'unknown error')}")
+            message = data["error"].get("message", "unknown error")
+            raise RuntimeError(f"Talosly RPC error on {method}: {message}")
         return data["result"]
 
     async def _throttle(self) -> None:
