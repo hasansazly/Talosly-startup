@@ -48,7 +48,11 @@ class EthereumRPCClient:
                 response = await client.post(self.rpc_url, json=payload)
                 if response.status_code != 429:
                     response.raise_for_status()
-                    data = response.json()
+                    try:
+                        data = response.json()
+                    except ValueError as exc:
+                        body = response.text[:200]
+                        raise RuntimeError(f"Talosly RPC error on {method}: {body or 'non-JSON response'}") from exc
                     break
                 if attempt >= settings.ethereum_rpc_max_retries:
                     retry_after_seconds = self._retry_delay(response, attempt)
