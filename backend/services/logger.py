@@ -9,6 +9,8 @@ from backend.config import settings
 class TaloslyLogger:
     def __init__(self) -> None:
         logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
         self._logger = logging.getLogger("talosly")
 
     def _emit(self, level: str, event: str, **kwargs: Any) -> None:
