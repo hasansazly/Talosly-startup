@@ -75,6 +75,15 @@ def test_rpc_client_uses_resolved_settings_url(monkeypatch):
     assert client.rpc_url == "https://example.test/v2/resolved-key"
 
 
+def test_rpc_client_builds_alchemy_url_from_key_when_default_rpc_is_present(monkeypatch):
+    monkeypatch.setattr(settings, "ethereum_rpc_url", "https://cloudflare-eth.com")
+    monkeypatch.setattr(settings, "alchemy_api_key", "resolved-key")
+
+    client = EthereumRPCClient()
+
+    assert client.rpc_url == "https://eth-mainnet.g.alchemy.com/v2/resolved-key"
+
+
 def test_sanitized_rpc_url_redacts_alchemy_key():
     client = EthereumRPCClient("https://eth-mainnet.g.alchemy.com/v2/secret-key")
 
