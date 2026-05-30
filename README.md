@@ -508,7 +508,13 @@ To resume live polling:
 
 ```env
 ENABLE_RPC_POLLING=true
+ENABLE_MEMPOOL_SUBSCRIBER=false
 ```
+
+Keep the mempool subscriber off unless the Alchemy plan supports
+`alchemy_pendingTransactions`. Repeating `server rejected WebSocket connection:
+HTTP 429` means the websocket subscription is rate-limited; RPC polling can
+still run without it.
 
 Use one worker replica unless multiple consumers are intentionally sharing RPC
 quota.

@@ -6,10 +6,10 @@ from typing import Any
 
 import websockets
 
+from backend.config import settings
 from backend.services.logger import logger
 
 _BACKOFF_INITIAL_SECONDS = 5
-_BACKOFF_MAX_SECONDS = 60
 
 TransactionHandler = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -65,11 +65,13 @@ class MempoolSubscriber:
             except websockets.exceptions.ConnectionClosed as exc:
                 logger.warning("mempool.connection.closed", error=str(exc), retry_delay=retry_delay)
                 await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, _BACKOFF_MAX_SECONDS)
+                retry_delay = min(retry_delay * 2, settings.mempool_backoff_max_seconds)
             except Exception as exc:
+                if self._is_rate_limited(exc):
+                    retry_delay = max(retry_delay, settings.mempool_rate_limit_backoff_seconds)
                 logger.error("mempool.loop.error", error=str(exc), retry_delay=retry_delay)
                 await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, _BACKOFF_MAX_SECONDS)
+                retry_delay = min(retry_delay * 2, settings.mempool_backoff_max_seconds)
             finally:
                 self.websocket = None
 
@@ -90,6 +92,10 @@ class MempoolSubscriber:
             "method": "eth_subscribe",
             "params": params,
         }
+
+    @staticmethod
+    def _is_rate_limited(exc: Exception) -> bool:
+        return "429" in str(exc)
 
     @staticmethod
     def _extract_transaction(raw_message: str) -> dict[str, Any] | None:
