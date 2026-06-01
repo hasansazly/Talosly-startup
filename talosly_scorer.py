@@ -1,4 +1,9 @@
-# Talosly — Stage 1 risk scorer. Drop-in replacement before Claude API call.
+"""Legacy standalone Stage 1 scorer.
+
+Production code uses backend.services.scorer.TransactionScorer. This module is
+kept only as an old standalone experiment/reference so importing runtime paths
+does not accidentally depend on it.
+"""
 
 from __future__ import annotations
 

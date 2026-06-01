@@ -416,6 +416,22 @@ flowchart TD
   RailwayWorker -. optional .-> RPC[Ethereum RPC]
 ```
 
+### Runtime Boundaries
+
+Authoritative application code lives in:
+
+- `backend/main.py` for the FastAPI app,
+- `backend/routers/` for API resources,
+- `backend/services/scorer.py` for production transaction scoring,
+- `backend/worker.py` for background monitoring,
+- `frontend/src/` for the React dashboard.
+
+The files under `api/` are thin Vercel route adapters that import
+`backend.main.app`; they are not separate API implementations.
+
+`talosly_scorer.py` is a legacy standalone scoring experiment kept as reference.
+Runtime code should use `backend.services.scorer.TransactionScorer`.
+
 ### Vercel Frontend
 
 Vercel should deploy only the React frontend.
@@ -590,21 +606,21 @@ Open locally:
 Run all tests:
 
 ```bash
-python3 -m pytest
+.venv/bin/python -m pytest
 ```
 
 Current full suite status:
 
 ```text
-101 passed
+112 passed
 ```
 
 Focused checks:
 
 ```bash
-python3 -m pytest tests/test_layer3.py tests/test_layer4.py tests/test_layer5.py
-python3 -m pytest tests/test_scorer.py tests/test_rpc.py tests/test_known_hacks.py
-python3 -m pytest tests/test_telegram.py tests/test_api.py
+.venv/bin/python -m pytest tests/test_layer3.py tests/test_layer4.py tests/test_layer5.py
+.venv/bin/python -m pytest tests/test_scorer.py tests/test_rpc.py tests/test_known_hacks.py
+.venv/bin/python -m pytest tests/test_telegram.py tests/test_api.py
 ```
 
 Build frontend:
