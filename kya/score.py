@@ -13,7 +13,7 @@ from kya.ingest import AgentEvent
 from scoring.cost_tracker import CostTracker, CostReport, estimate_cost_usd
 from scoring.layer3 import EnsembleResult, Layer3MLEnsemble, active_mode, reload_models, score_transaction
 
-KYA_UNTRAINED_MODEL_DIR = Path("models/kya_untrained")
+KYA_MODEL_DIR = Path("models/kya")
 _default_kya_layer3: Layer3MLEnsemble | None = None
 
 
@@ -62,7 +62,7 @@ def _get_kya_layer3() -> Layer3MLEnsemble:
     global _default_kya_layer3
     if _default_kya_layer3 is None:
         _default_kya_layer3 = Layer3MLEnsemble(
-            model_dir=KYA_UNTRAINED_MODEL_DIR,
+            model_dir=KYA_MODEL_DIR,
             bootstrap_if_missing=False,
         )
     return _default_kya_layer3
