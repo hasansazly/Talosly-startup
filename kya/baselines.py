@@ -1,0 +1,2 @@
+"""KYA baseline profile stubs."""
+
