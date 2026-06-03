@@ -290,6 +290,60 @@ async def _create_tables() -> None:
                 item["description"],
                 item["is_public"],
             )
+        await _create_kya_tables(conn)
+
+
+async def create_kya_tables() -> None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await _create_kya_tables(conn)
+
+
+async def _create_kya_tables(conn: asyncpg.Connection) -> None:
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agents (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            principal_ref TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_wallets (
+            id SERIAL PRIMARY KEY,
+            agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+            chain TEXT NOT NULL,
+            address TEXT NOT NULL UNIQUE,
+            added_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_profiles (
+            agent_id INTEGER PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+            baseline JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_scores (
+            id SERIAL PRIMARY KEY,
+            agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+            trust_score INTEGER NOT NULL CHECK (trust_score >= 0 AND trust_score <= 100),
+            risk_factors JSONB NOT NULL DEFAULT '[]'::jsonb,
+            shap_top JSONB NOT NULL DEFAULT '[]'::jsonb,
+            confidence DOUBLE PRECISION,
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
 
 
 async def insert_protocol(name: str, address: str, owner_api_key_id: int | None = None) -> int:
