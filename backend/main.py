@@ -28,6 +28,7 @@ from backend.services.logger import logger as structured_logger
 from backend.services.metrics import public_stats as get_public_stats
 from backend.services.rpc import EthereumRPCClient
 from backend.services.scorer import TransactionScorer
+from kya.api import router as kya_router
 from scoring.cost_tracker import CostTracker
 
 logging.basicConfig(level=logging.INFO)
@@ -110,6 +111,7 @@ app.include_router(waitlist_router, prefix="/api/waitlist", tags=["waitlist"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 app.include_router(settings_admin_router, prefix="/api/admin", tags=["admin"])
+app.include_router(kya_router, prefix="/api", tags=["kya"])
 
 
 @app.exception_handler(Exception)
