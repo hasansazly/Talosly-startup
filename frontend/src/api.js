@@ -76,3 +76,6 @@ export const updateAdminSetting = (key, payload) => unwrap(api.put(`/api/admin/s
 export const createAdminKey = (name = 'Dev key') => unwrap(api.post('/api/admin/keys/create', null, { params: { name }, headers: adminHeaders() }));
 export const validateAdminKey = (apiKey) => unwrap(api.post('/api/admin/keys/validate', null, { params: { api_key: apiKey }, headers: adminHeaders() }));
 export const revokeKey = (id) => unwrap(api.delete(`/api/admin/keys/${id}`, { headers: adminHeaders() }));
+export const createAgent = (payload) => unwrap(api.post('/api/v1/agents', payload, { headers: authHeaders() }));
+export const getAgentScore = (id) => unwrap(api.get(`/api/v1/agents/${id}/score`, { headers: authHeaders() }));
+export const scoreAgentAction = (payload) => unwrap(api.post('/api/v1/agent-score', payload, { headers: authHeaders() }));

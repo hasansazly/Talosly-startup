@@ -9,6 +9,7 @@ import {
   getRecommendedAction,
   shorten,
 } from '../utils/alertUi.js';
+import RiskSignalBreakdown, { getShapSignals } from './RiskSignalBreakdown.jsx';
 
 function copyText(value) {
   if (!navigator.clipboard) return;
@@ -21,57 +22,6 @@ function AddressLine({ label, value }) {
       <span>{label}</span>
       <code>{shorten(value)}</code>
       <button type="button" className="tiny-action" onClick={() => copyText(value || '')}>Copy</button>
-    </div>
-  );
-}
-
-function getShapSignals(alert) {
-  const source = alert?.shap_top || alert?.layer3?.shap_top || alert?.layer3_result?.shap_top;
-  if (!Array.isArray(source)) return [];
-  return source
-    .filter((signal) => signal && signal.feature)
-    .map((signal) => {
-      const rawMagnitude = Number(signal.shap ?? signal.value ?? 0);
-      return {
-        feature: signal.feature,
-        value: signal.value,
-        magnitude: Math.abs(Number.isFinite(rawMagnitude) ? rawMagnitude : 0),
-      };
-    })
-    .filter((signal) => signal.magnitude > 0)
-    .slice(0, 3);
-}
-
-function formatSignalValue(value) {
-  if (value === undefined || value === null || value === '') return '—';
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return String(value);
-  if (Math.abs(numeric) >= 100) return numeric.toFixed(0);
-  if (Math.abs(numeric) >= 10) return numeric.toFixed(1);
-  return numeric.toFixed(3).replace(/\.?0+$/, '');
-}
-
-function RiskSignalBreakdown({ signals }) {
-  if (!signals.length) return null;
-
-  const maxMagnitude = Math.max(...signals.map((signal) => signal.magnitude), 0.001);
-
-  return (
-    <div className="modal-section risk-signal-section">
-      <h3>Top Risk Signals</h3>
-      <div className="risk-signal-list">
-        {signals.map((signal) => (
-          <div className="risk-signal-row" key={signal.feature}>
-            <div className="risk-signal-meta">
-              <span>{signal.feature.replaceAll('_', ' ')}</span>
-              <code>{formatSignalValue(signal.value)}</code>
-            </div>
-            <div className="risk-signal-bar" aria-hidden="true">
-              <span style={{ width: `${Math.max((signal.magnitude / maxMagnitude) * 100, 8)}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
