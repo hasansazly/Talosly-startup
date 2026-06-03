@@ -11,6 +11,12 @@ from backend.services.logger import logger
 from backend.services.rpc import EthereumRPCClient, EthereumRPCRateLimitError
 from backend.services.scorer import TransactionScorer
 from backend.services.telegram import TelegramService
+from kya.alerts import send_agent_score_alert
+from kya.baselines import get_baseline, update_baseline
+from kya.config import kya_settings
+from kya.features import build_feature_vector
+from kya.ingest import ingest_wallet
+from kya.score import score_agent_event
 from scoring.features import Layer2FeatureEngineering
 from scoring.filters import PreFilterManager
 from scoring.layer3 import Layer3MLEnsemble
@@ -34,6 +40,7 @@ class TaloslyWorker:
         self.mempool_subscriber: MempoolSubscriber | None = None
         self.mempool_task: asyncio.Task | None = None
         self.mempool_protocols: dict[str, dict] = {}
+        self.kya_seen_tx_hashes: dict[int, set[str]] = {}
 
     def stop(self, *_args) -> None:
         self.running = False
@@ -53,18 +60,85 @@ class TaloslyWorker:
             database="PostgreSQL",
         )
         try:
+            worker_tasks = []
             if settings.enable_mempool_subscriber and settings.ethereum_ws_url:
-                await asyncio.gather(
-                    self._poll_loop(),
-                    self._run_mempool_subscriber(),
-                    return_exceptions=True,
-                )
+                worker_tasks.extend([self._poll_loop(), self._run_mempool_subscriber()])
             else:
                 if settings.enable_mempool_subscriber:
                     logger.warning("mempool.disabled", reason="missing websocket url")
-                await self._poll_loop()
+                worker_tasks.append(self._poll_loop())
+            if kya_settings.enable_kya:
+                worker_tasks.append(self._run_kya_loop())
+            if len(worker_tasks) == 1:
+                await worker_tasks[0]
+            else:
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
         finally:
             await self.shutdown("stop requested")
+
+    async def _run_kya_loop(self) -> None:
+        logger.info("worker.kya.start", interval_seconds=kya_settings.kya_poll_interval_seconds)
+        while self.running:
+            try:
+                wallets = await self._get_agent_wallets()
+                for wallet in wallets:
+                    await self._process_agent_wallet(wallet)
+            except EthereumRPCRateLimitError as exc:
+                retry_after_seconds = getattr(exc, "retry_after_seconds", None) or 0
+                backoff_seconds = int(max(settings.ethereum_rpc_rate_limit_backoff_seconds, retry_after_seconds))
+                logger.error("worker.kya.rpc.rate_limited", error=str(exc), backoff_seconds=backoff_seconds)
+                await asyncio.sleep(backoff_seconds)
+                continue
+            except Exception as exc:
+                logger.error("worker.kya.error", error=str(exc))
+            await asyncio.sleep(max(kya_settings.kya_poll_interval_seconds, 10))
+
+    async def _get_agent_wallets(self) -> list[dict]:
+        pool = await db.get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT
+                agents.id AS agent_id,
+                agents.name,
+                agents.principal_ref,
+                agent_wallets.id AS wallet_id,
+                agent_wallets.chain,
+                agent_wallets.address
+            FROM agent_wallets
+            JOIN agents ON agents.id = agent_wallets.agent_id
+            WHERE agents.status = 'active'
+            ORDER BY agent_wallets.added_at ASC
+            """
+        )
+        return [dict(row) for row in rows]
+
+    async def _process_agent_wallet(self, wallet: dict) -> int:
+        agent_id = int(wallet["agent_id"])
+        address = str(wallet["address"])
+        lookback = max(settings.ethereum_blocks_per_poll, 1)
+        events = await ingest_wallet(agent_id, address, lookback, rpc_client=self.rpc)
+        seen = self.kya_seen_tx_hashes.setdefault(int(wallet["wallet_id"]), set())
+        processed = 0
+        for event in events:
+            if event.tx_hash in seen:
+                continue
+            seen.add(event.tx_hash)
+            baseline = await get_baseline(agent_id)
+            build_feature_vector(event, baseline)
+            updated_baseline = await update_baseline(agent_id, event)
+            score = await score_agent_event(agent_id, event, updated_baseline)
+            await send_agent_score_alert(
+                {
+                    "name": wallet.get("name"),
+                    "principal_ref": wallet.get("principal_ref"),
+                    "address": address,
+                },
+                event.tx_hash,
+                score,
+                telegram=self.telegram,
+            )
+            processed += 1
+        return processed
 
     # Layer 0 — raw data ingestion
     #
