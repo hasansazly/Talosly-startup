@@ -1,14 +1,20 @@
 # Talosly
 
-AI security monitoring for DeFi protocols.
+AI security monitoring for DeFi protocols and autonomous agents.
 
 Talosly watches protocol contracts, filters noisy on-chain activity, extracts
 exploit-oriented signals, uses ML and LLM reasoning only when needed, and sends
 actionable alerts before teams miss critical transactions.
 
+The same engine now also powers **KYA**: Know Your Agent, a default-off product
+surface for real-time trust scoring of autonomous AI agents. KYA monitors an
+agent wallet, learns a rolling behavioral baseline, scores deviations with the
+existing Layer 3 machinery and SHAP explanations, and alerts through the same
+Telegram delivery path.
+
 The product is built for early DeFi teams that cannot yet afford a full
 security operations team, but still need practical monitoring, explainable risk
-scores, alert history, and replayable evidence.
+scores, alert history, replayable evidence, and agent-level operational trust.
 
 ## Product Snapshot
 
@@ -26,9 +32,12 @@ that into one operational loop:
 6. Notify operators through Telegram.
 7. Improve detection with replay tests and known exploit data.
 
+KYA is additive. The existing protocol-monitoring path remains the production
+default and KYA runtime behavior is disabled unless `ENABLE_KYA=true`.
+
 This repo is not a landing page mock. It contains the backend, frontend,
-worker, scoring stack, replay tools, tests, deployment config, and operating
-playbook used to run Talosly.
+worker, scoring stack, KYA agent trust package, replay tools, tests, deployment
+config, and operating playbook used to run Talosly.
 
 ## Why This Matters
 
@@ -50,15 +59,20 @@ Talosly starts with a narrower, practical promise:
 
 Talosly currently includes:
 
-- React dashboard for protocols, transactions, alerts, replay, and admin views.
+- React dashboard for protocols, transactions, alerts, replay, agents, and
+  admin views.
 - FastAPI backend with API key auth, admin auth, rate limiting, and settings.
 - Railway worker for live monitoring and alerting.
 - PostgreSQL persistence for protocols, transactions, alerts, feedback, waitlist,
-  settings, API keys, and scoring metrics.
+  settings, API keys, scoring metrics, agents, agent wallets, agent profiles,
+  and agent scores.
 - Telegram alert delivery with batching, retries, dedupe, and HTML fallback.
 - Replay scripts for historical exploit-style testing.
 - Known exploit transaction database and loader.
+- Known bad-agent label loader and offline KYA training script.
 - Layered scoring engine from cheap filters to LLM oracle.
+- KYA package for agent wallet ingestion, baselines, feature adaptation,
+  scoring, alerts, API routes, and offline training.
 - Deployment split for Vercel frontend and Railway backend/worker.
 
 ## System Overview
@@ -69,17 +83,21 @@ flowchart LR
   UI -->|VITE_API_URL| API[Railway FastAPI API]
   API --> Auth[API Key + Admin Auth]
   API --> DB[(PostgreSQL)]
-  API --> Replay[Replay + Admin Tools]
+  API --> Replay[Replay + Admin + KYA Tools]
 
   Worker[Railway Worker] --> DB
   Worker -->|Layer 0 optional polling| RPC[Ethereum RPC]
   Worker -->|Layer 0 optional websocket| WSS[Alchemy WebSocket]
   Worker --> Pipeline[Detection Pipeline]
+  Worker -->|ENABLE_KYA=true| KYA[KYA Agent Loop]
   Pipeline --> OpenAI[OpenAI Oracle]
   Pipeline --> Telegram[Telegram Alerts]
+  KYA --> Telegram
 
   Data[Known Hacks + Blacklists] --> Pipeline
+  AgentData[Agent Baselines + Scores] --> KYA
   Models[Layer 3 Models] --> Pipeline
+  Models --> KYA
 ```
 
 The architecture is intentionally split:
@@ -91,6 +109,8 @@ The architecture is intentionally split:
 - **RPC polling** can be turned off instantly with `ENABLE_RPC_POLLING=false`.
 - **Layer 0 ingestion** covers raw RPC block polling and Alchemy mempool
   subscriptions before filtering, features, and scoring.
+- **KYA ingestion** is off by default and runs only in the Railway worker when
+  `ENABLE_KYA=true`.
 
 ## End-to-End Detection Workflow
 
@@ -134,6 +154,53 @@ sequenceDiagram
     end
   end
 ```
+
+## KYA Agent Trust Workflow
+
+KYA is a second product path built on the same Talosly engine. It is designed
+for design partners running autonomous agents that control or propose on-chain
+actions.
+
+The current KYA v1 loop:
+
+1. Register an agent and connect a wallet.
+2. Ingest recent wallet activity through the existing Ethereum RPC client.
+3. Normalize each transaction into an `AgentEvent`.
+4. Update the rolling `agent_profiles` behavioral baseline.
+5. Build a Layer 3-compatible feature vector with extra KYA deviation signals.
+6. Score the event with the existing Layer 3 ML/heuristic machinery.
+7. Persist trust scores and SHAP top signals in `agent_scores`.
+8. Alert through the existing Telegram service if derived risk crosses
+   `KYA_ALERT_THRESHOLD`.
+
+```mermaid
+sequenceDiagram
+  participant Wallet as Agent Wallet
+  participant Worker as Railway Worker
+  participant KYA as KYA Package
+  participant L3 as Existing Layer 3
+  participant DB as PostgreSQL
+  participant TG as Telegram
+
+  Wallet->>Worker: Recent transactions
+  Worker->>KYA: ingest_wallet
+  KYA->>DB: Read/update agent profile
+  KYA->>KYA: Baseline deviation features
+  KYA->>L3: Layer 3-compatible feature vector
+  L3-->>KYA: Score + SHAP top signals
+  KYA->>DB: Insert agent_scores
+  opt Risk above KYA_ALERT_THRESHOLD
+    KYA->>TG: Existing smart alert delivery
+  end
+```
+
+KYA v1 runs unsupervised by default. It can optionally use an offline-trained
+model from `models/kya`, but if model files are absent or invalid it falls back
+to the same no-model Layer 3 behavior Talosly already uses safely.
+
+The main product risk is false positives. Let a design partner wallet baseline
+for a few days before treating alerts as production-grade. If early alerts are
+noisy, tighten the baseline confidence gate before adding more features.
 
 ## Scoring Stack
 
@@ -315,18 +382,26 @@ flowchart LR
   Incidents[Known Exploits] --> Known[data/known_hacks.jsonl]
   Known --> Loader[data/load_known_hacks.py]
   Loader --> PreScreen[Known exploit pre-screen]
+  BadAgents[Known Bad Agents] --> AgentLabels[data/known_bad_agents.jsonl]
+  AgentLabels --> AgentLoader[data/load_known_bad_agents.py]
   Replay[Replay Suites] --> Tests[Pytest + Backtests]
   Alerts[Alert Feedback] --> DB[(PostgreSQL)]
   DB --> Training[Layer 3 Training]
+  DB --> KYATraining[KYA Offline Training]
   Training --> Models[models/*.pkl]
+  KYATraining --> KYAModels[models/kya/*.pkl]
   Models --> Worker[Worker Runtime]
+  KYAModels --> Worker
 ```
 
 Talosly includes:
 
 - `data/known_hacks.jsonl` for confirmed exploit hashes,
 - `data/load_known_hacks.py` for O(1) exploit lookup and CLI updates,
+- `data/known_bad_agents.jsonl` for future supervised KYA labels,
+- `data/load_known_bad_agents.py` for O(1) bad-agent lookup and CLI updates,
 - `scripts/train_layer3.py` for offline XGBoost Layer 3 training,
+- `scripts/train_kya.py` for offline KYA supervised training,
 - replay scripts for validating detection behavior,
 - alert feedback endpoints for human review.
 
@@ -357,6 +432,16 @@ Smoke-test training:
 python3 scripts/train_layer3.py --synthetic
 ```
 
+Smoke-test KYA training:
+
+```bash
+python3 scripts/train_kya.py --synthetic --model-dir models/kya
+```
+
+Do not wire KYA training into runtime. KYA scoring continues to run
+unsupervised until real agent labels and accumulated `agent_scores` justify a
+trained model.
+
 ## Dashboard and API
 
 The frontend provides:
@@ -365,6 +450,7 @@ The frontend provides:
 - transaction history,
 - alert history,
 - Layer 3 top risk signal breakdowns in transaction details,
+- agent list, trust score history, and SHAP signal breakdowns,
 - replay workflow,
 - admin settings,
 - system status.
@@ -376,6 +462,9 @@ The backend exposes:
 - transaction scoring,
 - alert listing,
 - alert feedback,
+- KYA agent registration,
+- KYA latest agent score lookup,
+- KYA synchronous agent-action scoring behind `ENABLE_KYA`,
 - waitlist and admin routes.
 
 Health check:
@@ -402,6 +491,17 @@ Admin routes require:
 X-Admin-Secret: your_admin_secret
 ```
 
+KYA endpoints:
+
+```text
+POST /api/v1/agents
+GET  /api/v1/agents/{agent_id}/score
+POST /api/v1/agent-score
+```
+
+`POST /api/v1/agent-score` is the future bureau endpoint. It is intentionally
+gated by `ENABLE_KYA` and should mature after real monitored-agent data exists.
+
 ## Deployment
 
 ```mermaid
@@ -424,10 +524,12 @@ Authoritative application code lives in:
 - `backend/routers/` for API resources,
 - `backend/services/scorer.py` for production transaction scoring,
 - `backend/worker.py` for background monitoring,
+- `kya/` for additive Know Your Agent functionality,
 - `frontend/src/` for the React dashboard.
 
-The files under `api/` are thin Vercel route adapters that import
-`backend.main.app`; they are not separate API implementations.
+There is intentionally no Vercel Python API runtime. Older `api/` serverless
+shims were removed so Vercel cannot accidentally invoke backend code. Vercel
+serves the static frontend and forwards `/api/*` to Railway.
 
 `talosly_scorer.py` is a legacy standalone scoring experiment kept as reference.
 Runtime code should use `backend.services.scorer.TransactionScorer`.
@@ -455,6 +557,20 @@ Vercel build settings:
 `.vercelignore` excludes backend, ML, model, and runtime files so Vercel does
 not bundle Python dependencies like `numpy` and `scikit-learn`.
 
+`vercel.json` forwards API traffic to Railway before falling back to the React
+SPA:
+
+```json
+{
+  "source": "/api/(.*)",
+  "destination": "https://talosly-startup-production.up.railway.app/api/$1"
+}
+```
+
+If Vercel shows `FUNCTION_INVOCATION_FAILED`, it is trying to run a serverless
+function. Confirm the latest `main` commit is deployed, clear the Vercel build
+cache, and verify the old `api/` files are not present in the deployment.
+
 ### Railway Backend
 
 The backend serves FastAPI.
@@ -469,6 +585,7 @@ ADMIN_SECRET=...
 API_KEY_SECRET_SALT=...
 FRONTEND_URL=https://your-vercel-domain.vercel.app
 PUBLIC_URL=https://talosly-startup-production.up.railway.app
+ENABLE_KYA=false
 ```
 
 ### Railway Worker
@@ -478,6 +595,10 @@ The worker runs `backend/worker.py`.
 Safe current variables:
 
 ```env
+ENABLE_KYA=false
+KYA_POLL_INTERVAL_SECONDS=300
+KYA_ALERT_THRESHOLD=80
+
 ENABLE_RPC_POLLING=false
 POLL_INTERVAL_SECONDS=3600
 
@@ -505,12 +626,34 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 ```
 
+Flip `ENABLE_KYA=true` only in staging first. Do not enable KYA directly in
+production. With `ENABLE_KYA=false`, the worker keeps the existing protocol
+loop behavior and does not start the KYA loop.
+
+For a staging KYA design-partner run:
+
+```env
+ENABLE_KYA=true
+KYA_POLL_INTERVAL_SECONDS=300
+KYA_ALERT_THRESHOLD=80
+ENABLE_RPC_POLLING=false
+```
+
+Then register one agent wallet, let it baseline for a few days, and review
+alert quality before increasing coverage.
+
 Expected healthy idle logs:
 
 ```text
 worker.start ... rpc_polling=false
 worker.layer0.rpc.start
 worker.poll.disabled ... reason="rpc polling disabled"
+```
+
+Expected KYA staging logs when enabled:
+
+```text
+worker.kya.start ... interval_seconds=300
 ```
 
 When the Alchemy mempool subscriber is enabled and a websocket URL is present,
@@ -599,6 +742,7 @@ Open locally:
 - Frontend: `http://localhost`
 - API health: `http://localhost/api/health`
 - Dashboard: `http://localhost/dashboard`
+- Agents: `http://localhost/agents`
 - Admin: `http://localhost/admin`
 
 ## Testing and Verification
@@ -612,7 +756,7 @@ Run all tests:
 Current full suite status:
 
 ```text
-112 passed
+133 passed
 ```
 
 Focused checks:
@@ -621,6 +765,9 @@ Focused checks:
 .venv/bin/python -m pytest tests/test_layer3.py tests/test_layer4.py tests/test_layer5.py
 .venv/bin/python -m pytest tests/test_scorer.py tests/test_rpc.py tests/test_known_hacks.py
 .venv/bin/python -m pytest tests/test_telegram.py tests/test_api.py
+.venv/bin/python -m pytest tests/test_kya_ingest.py tests/test_kya_baselines.py tests/test_kya_features.py
+.venv/bin/python -m pytest tests/test_kya_score.py tests/test_kya_alerts.py tests/test_kya_api.py
+.venv/bin/python -m pytest tests/test_kya_training.py tests/test_kya_worker.py
 ```
 
 Build frontend:
@@ -663,16 +810,28 @@ scoring/
 data/
   known_hacks.jsonl        known exploit transaction hashes
   load_known_hacks.py      known-hacks loader and CLI
+  known_bad_agents.jsonl   future KYA supervised labels
+  load_known_bad_agents.py known-bad-agent loader and CLI
   transactions.jsonl       sample training data
+
+kya/
+  ingest.py                agent wallet ingestion via existing RPC client
+  baselines.py             rolling behavioral profiles in agent_profiles
+  features.py              KYA deviations mapped to Layer 3 feature shape
+  score.py                 trust scoring using existing Layer 3 machinery
+  alerts.py                KYA alerts through existing Telegram service
+  api.py                   KYA FastAPI router
+  config.py                default-off KYA settings
 
 scripts/
   train_layer3.py          offline XGBoost model training
+  train_kya.py             offline KYA model training
   init_db.py               database initialization
   create_api_key.py        API key creation
 
 frontend/
   src/
-    pages/                 dashboard, replay, admin, alerts
+    pages/                 dashboard, agents, replay, admin, alerts
     components/            UI components
 
 tests/
@@ -682,15 +841,23 @@ tests/
   test_rpc.py              RPC rate-limit behavior
   test_scorer.py           scorer behavior
   test_telegram.py         Telegram delivery behavior
+  test_kya_*.py            KYA ingestion, baselines, features, scoring, alerts,
+                           API, worker gating, and training
 ```
 
 ## What Is Working Now
 
 - Railway backend health endpoint is live.
 - Vercel frontend builds as a static app.
+- Vercel `/api/*` routes forward to Railway.
 - Worker boots in production.
 - RPC polling can be safely disabled.
 - Known exploit DB loads.
+- KYA tables initialize additively.
+- KYA frontend route exists at `/agents`.
+- KYA runtime is default-off behind `ENABLE_KYA=false`.
+- KYA staging can monitor one design partner wallet when `ENABLE_KYA=true`.
+- KYA scoring runs unsupervised unless a trained `models/kya` model exists.
 - Blacklist loads.
 - Layer 3 bootstraps and scores.
 - Layer 4 has structured fail-open behavior.
@@ -708,12 +875,16 @@ Near-term product work:
 - Persist Layer 3 and Layer 4 metadata in richer DB columns.
 - Improve wallet and contract reputation signals.
 - Add per-protocol alert policies.
+- Run KYA with one design partner wallet in staging.
+- Add a baseline confidence gate if early KYA alerts are noisy.
+- Export accumulated `agent_scores` for later supervised KYA training.
 
 Near-term business work:
 
 - Record a concise Loom demo.
 - Onboard a small number of design partners.
 - Validate alert quality with historical and live protocol traffic.
+- Validate KYA alert quality with monitored agent-wallet behavior.
 - Convert replay evidence into case studies.
 - Package Talosly as a lightweight DeFi security co-pilot.
 
