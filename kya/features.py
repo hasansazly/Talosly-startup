@@ -36,8 +36,9 @@ def build_feature_vector(event: AgentEvent, baseline: dict[str, Any]) -> dict[st
 
     deviation = baseline_deviation_features(event, baseline)
 
+    graph_signal = 1.0 if deviation["new_counterparty"] else min(graph_centrality, 0.1)
     features = {
-        "graph_centrality": max(graph_centrality, 1.0 if deviation["new_counterparty"] else 0.0),
+        "graph_centrality": graph_signal,
         "velocity": max(velocity, min(float(deviation["cadence_z_score"]), 20.0)),
         "pool_drain_ratio": max(_pool_drain_extractor.extract(raw), min(float(deviation["value_z_score"]) / 10, 1.0)),
         "flash_loan_fingerprint": max(
