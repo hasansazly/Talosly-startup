@@ -245,6 +245,39 @@ Layer 3 fields:
 `shap_top` contains the top Layer 3 risk signals and is surfaced in the
 frontend transaction detail modal as a compact signal breakdown when available.
 
+## KYA Agent Wallet Monitoring
+
+Talosly can monitor autonomous agent wallets through the `/agents` page. This
+is a real backend-backed flow, not demo data.
+
+An authenticated beta user can:
+
+1. Connect a Talosly API key.
+2. Register an Ethereum or Base agent wallet.
+3. See only agents owned by that API key.
+4. Watch monitoring status move from `pending` to `active` after the worker has
+   ingested or scored activity for the wallet.
+5. Send a Telegram test alert to confirm delivery.
+6. Review the latest trust score, risk factors, and explanation signals.
+
+Agent registration validates EVM wallet addresses as `0x` followed by 40
+hexadecimal characters. Duplicate wallet addresses return a conflict without
+leaving an orphaned agent record.
+
+The KYA worker reads active wallets from `agent_wallets`, builds per-agent
+behavioral baselines, persists scores, and sends alerts through the existing
+Telegram service. Agent reads and scoring endpoints are scoped to the
+requesting API key.
+
+KYA state remains additive inside the existing `agent_profiles.baseline` JSON:
+
+- `robust_stats` for rolling median, MAD, and robust covariance,
+- `cusum_state` for changepoint accumulators,
+- `conformal_calib` for conformal score calibration.
+
+Optional Tier 1 signals are disabled by default so the original scoring and
+alert behavior remains unchanged until each flag is enabled.
+
 ### Layer 4: Structured Oracle
 
 Layer 4 receives Layer 2 features and Layer 3 signals, then returns a structured
@@ -503,6 +536,22 @@ LAYER5_CONFIDENCE_GATE=true
 RISK_ALERT_THRESHOLD=70
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
+
+ENABLE_KYA=true
+KYA_POLL_INTERVAL_SECONDS=3600
+KYA_ALERT_THRESHOLD=80
+KYA_SUPPORTED_CHAINS=ethereum,base
+
+KYA_ENABLE_MAHALANOBIS=false
+KYA_ENABLE_CHANGEPOINT=false
+KYA_ENABLE_CONFORMAL=false
+
+KYA_W_BASE=0.85
+KYA_W_MAHALANOBIS=0.10
+KYA_W_CHANGEPOINT=0.05
+KYA_CUSUM_DRIFT=0.01
+KYA_CUSUM_THRESHOLD=0.25
+KYA_CONFORMAL_ALPHA=0.05
 ```
 
 Expected healthy idle logs:
@@ -534,6 +583,23 @@ still run without it.
 
 Use one worker replica unless multiple consumers are intentionally sharing RPC
 quota.
+
+### KYA Deployment Checklist
+
+To make agent wallet monitoring live:
+
+1. Deploy the backend and frontend changes.
+2. Run Alembic migrations so `agents.owner_api_key_id` exists.
+3. Set `ENABLE_KYA=true` on the worker service.
+4. Configure `DATABASE_URL`, an Ethereum RPC endpoint, `TELEGRAM_BOT_TOKEN`, and
+   `TELEGRAM_CHAT_ID`.
+5. Restart or redeploy the worker after changing environment variables.
+6. Register a controlled wallet from `/agents`, send a test alert, and confirm
+   monitoring status becomes `active` after activity is processed.
+
+Enable one optional signal at a time. Start with Mahalanobis, validate that it
+improves real deviations without adding routine false alerts, then consider
+changepoint and conformal gating.
 
 ## RPC Safety and Rate Limits
 
@@ -599,6 +665,7 @@ Open locally:
 - Frontend: `http://localhost`
 - API health: `http://localhost/api/health`
 - Dashboard: `http://localhost/dashboard`
+- Agent wallets: `http://localhost/agents`
 - Admin: `http://localhost/admin`
 
 ## Testing and Verification
@@ -612,7 +679,7 @@ Run all tests:
 Current full suite status:
 
 ```text
-112 passed
+162 passed
 ```
 
 Focused checks:
@@ -621,6 +688,7 @@ Focused checks:
 .venv/bin/python -m pytest tests/test_layer3.py tests/test_layer4.py tests/test_layer5.py
 .venv/bin/python -m pytest tests/test_scorer.py tests/test_rpc.py tests/test_known_hacks.py
 .venv/bin/python -m pytest tests/test_telegram.py tests/test_api.py
+.venv/bin/python -m pytest tests/test_kya_api.py tests/test_kya_ownership.py tests/test_kya_validation.py tests/test_kya_test_alert.py
 ```
 
 Build frontend:
@@ -651,6 +719,13 @@ backend/
     blacklist.py           malicious addresses and exploit targets
   routers/                 API routes
 
+kya/
+  api.py                   owner-scoped agent registration and scoring API
+  baselines.py             rolling per-agent behavioral profile
+  score.py                 KYA trust scoring and optional signal fusion
+  alerts.py                KYA Telegram alert delivery
+  signals/                 Mahalanobis, changepoint, and conformal signals
+
 scoring/
   filters.py              Layer 1 pre-filter with Bloom-filter blacklist
   features.py              Layer 2 feature extraction
@@ -672,7 +747,7 @@ scripts/
 
 frontend/
   src/
-    pages/                 dashboard, replay, admin, alerts
+    pages/                 dashboard, agents, replay, admin, alerts
     components/            UI components
 
 tests/
@@ -682,6 +757,7 @@ tests/
   test_rpc.py              RPC rate-limit behavior
   test_scorer.py           scorer behavior
   test_telegram.py         Telegram delivery behavior
+  test_kya_*.py            KYA onboarding, ownership, signals, and alerts
 ```
 
 ## What Is Working Now
@@ -695,6 +771,10 @@ tests/
 - Layer 3 bootstraps and scores.
 - Layer 4 has structured fail-open behavior.
 - Layer 5 centralizes alert persistence and Telegram delivery.
+- Agent wallets can be registered from the website and are scoped to the
+  requesting API key.
+- Agent monitoring status and Telegram test-alert confirmation are available on
+  `/agents`.
 - Full test suite passes locally.
 
 ## What Comes Next
@@ -708,6 +788,7 @@ Near-term product work:
 - Persist Layer 3 and Layer 4 metadata in richer DB columns.
 - Improve wallet and contract reputation signals.
 - Add per-protocol alert policies.
+- Add self-service beta approval and per-user alert destinations.
 
 Near-term business work:
 
