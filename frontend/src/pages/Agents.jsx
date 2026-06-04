@@ -1,53 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createAgent, getAgentScore, getHealth, scoreAgentAction, setStoredApiKey } from '../api.js';
+import { createAgent, getAgents, getAgentScore, getHealth, scoreAgentAction, setStoredApiKey } from '../api.js';
 import AgentList from '../components/AgentList.jsx';
 import AgentTrustChart from '../components/AgentTrustChart.jsx';
 import FlaggedActionPanel from '../components/FlaggedActionPanel.jsx';
 import Header from '../components/Header.jsx';
 
-const AGENTS_KEY = 'talosly_kya_agents';
 const HISTORY_KEY = 'talosly_kya_score_history';
-
-const DEMO_AGENTS = [
-  {
-    id: 'demo-treasury',
-    name: 'Treasury Rebalancer',
-    principal_ref: 'agent://treasury-rebalancer',
-    status: 'active',
-    wallet: { chain: 'ethereum', address: '0x6b175474e89094c44da98b954eedeac495271d0f' },
-    latestScore: {
-      agent_id: 'demo-treasury',
-      trust_score: 28,
-      action: '0xdeviating-action',
-      risk_factors: ['new_counterparty', 'value_outlier', 'cadence_break'],
-      shap_top: [
-        { feature: 'pool_drain_ratio', value: 1, shap: 0.2 },
-        { feature: 'velocity', value: 20, shap: 0.12 },
-        { feature: 'gas_anomaly_zscore', value: 50, shap: 0.1 },
-      ],
-      confidence: 0.82,
-      computed_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-    },
-  },
-  {
-    id: 'demo-research',
-    name: 'Research Runner',
-    principal_ref: 'agent://research-runner',
-    status: 'active',
-    wallet: { chain: 'ethereum', address: '0x1111111254eeb25477b68fb85ed929f73a960582' },
-    latestScore: {
-      agent_id: 'demo-research',
-      trust_score: 86,
-      risk_factors: [],
-      shap_top: [
-        { feature: 'velocity', value: 0.3, shap: 0.02 },
-        { feature: 'calldata_entropy', value: 2.8, shap: 0.01 },
-      ],
-      confidence: 0.76,
-      computed_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    },
-  },
-];
 
 function loadJson(key, fallback) {
   try {
@@ -61,23 +19,11 @@ function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function seedHistory(agents) {
-  const existing = loadJson(HISTORY_KEY, {});
-  let changed = false;
-  const next = { ...existing };
-  for (const agent of agents) {
-    if (!next[agent.id] && agent.latestScore) {
-      const base = Number(agent.latestScore.trust_score || 0);
-      next[agent.id] = [3, 2, 1, 0].map((offset) => ({
-        ...agent.latestScore,
-        trust_score: Math.max(Math.min(base + offset * 4 - 5, 100), 0),
-        computed_at: new Date(Date.now() - offset * 1000 * 60 * 30).toISOString(),
-      }));
-      changed = true;
-    }
-  }
-  if (changed) saveJson(HISTORY_KEY, next);
-  return next;
+function normalizeAgent(agent) {
+  return {
+    ...agent,
+    latestScore: agent.latest_score || null,
+  };
 }
 
 function appendHistory(history, agentId, score) {
@@ -94,12 +40,9 @@ export default function Agents() {
   const [lastUpdated, setLastUpdated] = useState('');
   const [savedApiKey, setSavedApiKey] = useState(sessionStorage.getItem('talosly_api_key') || localStorage.getItem('talosly_api_key') || '');
   const [apiKeyDraft, setApiKeyDraft] = useState(savedApiKey);
-  const [agents, setAgents] = useState(() => {
-    const stored = loadJson(AGENTS_KEY, null);
-    return stored?.length ? stored : DEMO_AGENTS;
-  });
-  const [history, setHistory] = useState(() => seedHistory(loadJson(AGENTS_KEY, null)?.length ? loadJson(AGENTS_KEY, []) : DEMO_AGENTS));
-  const [selectedId, setSelectedId] = useState(() => agents[0]?.id || null);
+  const [agents, setAgents] = useState([]);
+  const [history, setHistory] = useState(() => loadJson(HISTORY_KEY, {}));
+  const [selectedId, setSelectedId] = useState(null);
   const [registerDraft, setRegisterDraft] = useState({ name: '', principal_ref: '', wallet_address: '', chain: 'ethereum' });
   const [actionDraft, setActionDraft] = useState({ action: '', counterparty: '', value: '', selector: '' });
   const [message, setMessage] = useState('');
@@ -118,11 +61,22 @@ export default function Agents() {
   }, []);
 
   useEffect(() => {
-    saveJson(AGENTS_KEY, agents.filter((agent) => !String(agent.id).startsWith('demo-')));
-  }, [agents]);
+    if (!savedApiKey) {
+      setAgents([]);
+      setSelectedId(null);
+      return;
+    }
+    getAgents()
+      .then((items) => {
+        const nextAgents = items.map(normalizeAgent);
+        setAgents(nextAgents);
+        setSelectedId((current) => nextAgents.some((agent) => agent.id === current) ? current : nextAgents[0]?.id || null);
+      })
+      .catch((error) => setMessage(error.message));
+  }, [savedApiKey]);
 
   async function refreshScore(agent) {
-    if (!agent || String(agent.id).startsWith('demo-')) return;
+    if (!agent) return;
     try {
       const latest = await getAgentScore(agent.id);
       setAgents((items) => items.map((item) => (item.id === agent.id ? { ...item, latestScore: latest } : item)));
@@ -138,8 +92,8 @@ export default function Agents() {
     setMessage('');
     try {
       const created = await createAgent(registerDraft);
-      const nextAgent = { ...created, latestScore: null };
-      setAgents((items) => [nextAgent, ...items.filter((item) => !String(item.id).startsWith('demo-'))]);
+      const nextAgents = (await getAgents()).map(normalizeAgent);
+      setAgents(nextAgents);
       setSelectedId(created.id);
       setRegisterDraft({ name: '', principal_ref: '', wallet_address: '', chain: 'ethereum' });
       setMessage('Agent registered.');
