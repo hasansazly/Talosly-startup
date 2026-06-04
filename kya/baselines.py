@@ -35,6 +35,13 @@ def _empty_cusum_state() -> dict[str, Any]:
     }
 
 
+def _empty_conformal_calib() -> dict[str, Any]:
+    return {
+        "scores": [],
+        "sample_count": 0,
+    }
+
+
 def _empty_robust_stats() -> dict[str, Any]:
     feature_count = len(FEATURE_NAMES)
     return {
@@ -86,6 +93,7 @@ def _empty_baseline() -> dict[str, Any]:
         },
         "robust_stats": _empty_robust_stats(),
         "cusum_state": _empty_cusum_state(),
+        "conformal_calib": _empty_conformal_calib(),
     }
 
 
@@ -138,6 +146,7 @@ def _normalize_baseline(value: Any) -> dict[str, Any]:
         baseline["last_deviation"] = {**_empty_baseline()["last_deviation"], **value.get("last_deviation", {})}
         baseline["robust_stats"] = {**_empty_robust_stats(), **value.get("robust_stats", {})}
         baseline["cusum_state"] = {**_empty_cusum_state(), **value.get("cusum_state", {})}
+        baseline["conformal_calib"] = {**_empty_conformal_calib(), **value.get("conformal_calib", {})}
     return baseline
 
 

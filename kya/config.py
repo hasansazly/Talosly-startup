@@ -11,6 +11,10 @@ class KYASettings(BaseSettings):
     kya_w_base: float = 1.0
     kya_w_mahalanobis: float = 1.0
     kya_w_changepoint: float = 1.0
+    kya_enable_conformal: bool = False
+    kya_conformal_alpha: float = 0.05
+    kya_conformal_window_size: int = 200
+    kya_conformal_min_samples: int = 20
 
     class Config:
         env_file = ".env"

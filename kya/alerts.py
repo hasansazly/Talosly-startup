@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from backend import database as db
+from backend.services.telegram import TelegramService
+from kya.baselines import get_baseline
 from kya.config import kya_settings
 from kya.score import AgentTrustScore
-from backend.services.telegram import TelegramService
+from kya.signals.conformal import ConformalSignal, compute_conformal_signal
 
 
 async def send_agent_score_alert(
@@ -17,13 +21,23 @@ async def send_agent_score_alert(
 ) -> bool:
     """Send a KYA alert when derived agent risk exceeds the configured threshold."""
     risk_score = 100 - int(score.trust_score)
-    if risk_score < int(kya_settings.kya_alert_threshold):
+    conformal = None
+    if kya_settings.kya_enable_conformal:
+        baseline = await get_baseline(score.agent_id)
+        conformal = compute_conformal_signal(
+            float(score.layer3.get("isolation_score") or 0.0),
+            baseline.get("conformal_calib"),
+        )
+        await _persist_conformal_calibration(score.agent_id, conformal.calibration)
+        if not conformal.provisional and not conformal.anomalous:
+            return False
+    if (conformal is None or conformal.provisional) and risk_score < int(kya_settings.kya_alert_threshold):
         return False
 
     service = telegram or TelegramService()
     agent_name = str(agent.get("name") or f"agent-{score.agent_id}")
     dedupe_ref = str(agent.get("principal_ref") or agent.get("address") or score.agent_id)
-    reason = _format_reason(agent_name, action, risk_score, score)
+    reason = _format_reason(agent_name, action, risk_score, score, conformal)
     return await service.send_smart_alert(
         {"name": f"KYA Agent: {agent_name}", "address": dedupe_ref},
         risk_score,
@@ -32,11 +46,36 @@ async def send_agent_score_alert(
     )
 
 
-def _format_reason(agent_name: str, action: str, risk_score: int, score: AgentTrustScore) -> str:
+def _format_reason(
+    agent_name: str,
+    action: str,
+    risk_score: int,
+    score: AgentTrustScore,
+    conformal: ConformalSignal | None = None,
+) -> str:
     reasons = _human_readable_reasons(score)
-    return (
+    reason = (
         f"Agent {agent_name} action {action} scored {risk_score}/100 risk. "
         f"Reasons: {'; '.join(reasons) if reasons else 'no dominant anomaly reason'}."
+    )
+    if conformal is None:
+        return reason
+    if conformal.provisional:
+        return f"{reason} Conformal confidence: provisional."
+    return f"{reason} Conformal confidence: {conformal.confidence:.1%}."
+
+
+async def _persist_conformal_calibration(agent_id: int, calibration: dict[str, Any]) -> None:
+    pool = await db.get_pool()
+    await pool.execute(
+        """
+        UPDATE agent_profiles
+        SET baseline = jsonb_set(baseline, '{conformal_calib}', $2::jsonb, true),
+            updated_at = NOW()
+        WHERE agent_id = $1
+        """,
+        agent_id,
+        json.dumps(calibration, sort_keys=True),
     )
 
 
