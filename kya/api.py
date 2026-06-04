@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -17,6 +18,7 @@ from kya.ingest import AgentEvent
 from kya.score import score_agent_event
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
+EVM_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 
 class AgentCreateRequest(BaseModel):
@@ -46,6 +48,29 @@ async def list_agents(api_key: dict = Depends(verify_api_key)):
 
 @router.post("/v1/agents", status_code=201)
 async def register_agent(payload: AgentCreateRequest, api_key: dict = Depends(verify_api_key)):
+    chain = payload.chain.strip().lower()
+    wallet_address = payload.wallet_address.strip()
+    supported_chains = {
+        item.strip().lower()
+        for item in kya_settings.kya_supported_chains.split(",")
+        if item.strip()
+    }
+    if chain not in supported_chains:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Unsupported chain",
+                "detail": f"Supported chains: {', '.join(sorted(supported_chains))}",
+            },
+        )
+    if chain in {"ethereum", "base"} and not EVM_ADDRESS_RE.fullmatch(wallet_address):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Invalid wallet address",
+                "detail": f"{chain} wallet addresses must be 0x followed by 40 hexadecimal characters",
+            },
+        )
     try:
         pool = await db.get_pool()
         async with pool.acquire() as conn:
@@ -68,11 +93,11 @@ async def register_agent(payload: AgentCreateRequest, api_key: dict = Depends(ve
                     RETURNING id
                     """,
                     agent_id,
-                    payload.chain,
-                    payload.wallet_address,
+                    chain,
+                    wallet_address,
                 )
     except asyncpg.UniqueViolationError:
-        raise HTTPException(status_code=409, detail={"error": "Agent wallet already exists", "detail": payload.wallet_address}) from None
+        raise HTTPException(status_code=409, detail={"error": "Agent wallet already exists", "detail": wallet_address}) from None
     return {
         "id": agent_id,
         "name": payload.name,
@@ -81,8 +106,8 @@ async def register_agent(payload: AgentCreateRequest, api_key: dict = Depends(ve
         "wallet": {
             "id": wallet_id,
             "agent_id": agent_id,
-            "chain": payload.chain,
-            "address": payload.wallet_address,
+            "chain": chain,
+            "address": wallet_address,
         },
         "owner_api_key_id": api_key["id"],
     }

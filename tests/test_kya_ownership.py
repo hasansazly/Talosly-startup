@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from backend.main import app
 from backend.middleware.auth import verify_api_key
 
+DUPLICATE_WALLET = "0x2222222222222222222222222222222222222222"
+
 
 def _with_key(key_id: int):
     app.dependency_overrides[verify_api_key] = lambda: {"id": key_id}
@@ -65,7 +67,7 @@ def test_different_key_cannot_read_or_score_agent(monkeypatch):
 def test_duplicate_wallet_leaves_no_orphan_agent(monkeypatch):
     state = {
         "agents": [],
-        "wallets": [{"agent_id": 1, "address": "0xduplicate"}],
+        "wallets": [{"agent_id": 1, "address": DUPLICATE_WALLET}],
     }
 
     class FakeTransaction:
@@ -118,7 +120,7 @@ def test_duplicate_wallet_leaves_no_orphan_agent(monkeypatch):
             json={
                 "name": "Duplicate Agent",
                 "principal_ref": "agent://duplicate",
-                "wallet_address": "0xduplicate",
+                "wallet_address": DUPLICATE_WALLET,
             },
         )
     finally:

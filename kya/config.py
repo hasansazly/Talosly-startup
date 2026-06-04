@@ -15,6 +15,7 @@ class KYASettings(BaseSettings):
     kya_conformal_alpha: float = 0.05
     kya_conformal_window_size: int = 200
     kya_conformal_min_samples: int = 20
+    kya_supported_chains: str = "ethereum,base"
 
     class Config:
         env_file = ".env"

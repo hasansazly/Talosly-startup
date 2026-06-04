@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 from backend.main import app
 from backend.middleware.auth import verify_api_key
 
+VALID_WALLET = "0x1111111111111111111111111111111111111111"
+
 
 def test_kya_register_agent_requires_api_key():
     response = TestClient(app).post(
@@ -12,7 +14,7 @@ def test_kya_register_agent_requires_api_key():
         json={
             "name": "Treasury Agent",
             "principal_ref": "agent://treasury",
-            "wallet_address": "0xagent",
+            "wallet_address": VALID_WALLET,
         },
     )
 
@@ -51,7 +53,7 @@ def test_kya_register_agent_connects_wallet(monkeypatch):
             json={
                 "name": "Treasury Agent",
                 "principal_ref": "agent://treasury",
-                "wallet_address": "0xagent",
+                "wallet_address": VALID_WALLET,
                 "chain": "ethereum",
             },
         )
@@ -64,10 +66,10 @@ def test_kya_register_agent_connects_wallet(monkeypatch):
         "id": 11,
         "agent_id": 7,
         "chain": "ethereum",
-        "address": "0xagent",
+        "address": VALID_WALLET,
     }
     assert captured[0]["args"] == ("Treasury Agent", "agent://treasury", "active", 42)
-    assert captured[1]["args"] == (7, "ethereum", "0xagent")
+    assert captured[1]["args"] == (7, "ethereum", VALID_WALLET)
 
 
 def test_kya_get_agent_score_returns_latest_score(monkeypatch):

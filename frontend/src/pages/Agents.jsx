@@ -6,6 +6,7 @@ import FlaggedActionPanel from '../components/FlaggedActionPanel.jsx';
 import Header from '../components/Header.jsx';
 
 const HISTORY_KEY = 'talosly_kya_score_history';
+const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
 function loadJson(key, fallback) {
   try {
@@ -46,6 +47,7 @@ export default function Agents() {
   const [registerDraft, setRegisterDraft] = useState({ name: '', principal_ref: '', wallet_address: '', chain: 'ethereum' });
   const [actionDraft, setActionDraft] = useState({ action: '', counterparty: '', value: '', selector: '' });
   const [message, setMessage] = useState('');
+  const [registerError, setRegisterError] = useState('');
 
   const selectedAgent = useMemo(() => agents.find((agent) => agent.id === selectedId) || agents[0], [agents, selectedId]);
   const selectedHistory = history[selectedAgent?.id] || [];
@@ -90,6 +92,11 @@ export default function Agents() {
   async function handleRegister(event) {
     event.preventDefault();
     setMessage('');
+    setRegisterError('');
+    if (!EVM_ADDRESS_RE.test(registerDraft.wallet_address.trim())) {
+      setRegisterError(`${registerDraft.chain} wallet addresses must be 0x followed by 40 hexadecimal characters.`);
+      return;
+    }
     try {
       const created = await createAgent(registerDraft);
       const nextAgents = (await getAgents()).map(normalizeAgent);
@@ -98,7 +105,7 @@ export default function Agents() {
       setRegisterDraft({ name: '', principal_ref: '', wallet_address: '', chain: 'ethereum' });
       setMessage('Agent registered.');
     } catch (error) {
-      setMessage(error.message);
+      setRegisterError(error.message);
     }
   }
 
@@ -162,8 +169,16 @@ export default function Agents() {
           <form className="agent-form" onSubmit={handleRegister}>
             <input value={registerDraft.name} onChange={(event) => setRegisterDraft({ ...registerDraft, name: event.target.value })} placeholder="Agent name" required />
             <input value={registerDraft.principal_ref} onChange={(event) => setRegisterDraft({ ...registerDraft, principal_ref: event.target.value })} placeholder="principal://ref" required />
-            <input value={registerDraft.wallet_address} onChange={(event) => setRegisterDraft({ ...registerDraft, wallet_address: event.target.value })} placeholder="0x wallet" required />
+            <select value={registerDraft.chain} onChange={(event) => setRegisterDraft({ ...registerDraft, chain: event.target.value })}>
+              <option value="ethereum">Ethereum</option>
+              <option value="base">Base</option>
+            </select>
+            <input value={registerDraft.wallet_address} onChange={(event) => {
+              setRegisterDraft({ ...registerDraft, wallet_address: event.target.value });
+              setRegisterError('');
+            }} placeholder="0x wallet" required />
             <button type="submit">Register</button>
+            {registerError && <div className="form-error">{registerError}</div>}
           </form>
         </div>
         <div>
