@@ -26,6 +26,15 @@ ROBUST_STATS_COVARIANCE_INTERVAL = max(int(os.getenv("KYA_ROBUST_STATS_COVARIANC
 ROBUST_STATS_DIAGONAL_FLOOR = 1e-8
 
 
+def _empty_cusum_state() -> dict[str, Any]:
+    return {
+        "s_high": 0.0,
+        "s_low": 0.0,
+        "reference_mean": None,
+        "count": 0,
+    }
+
+
 def _empty_robust_stats() -> dict[str, Any]:
     feature_count = len(FEATURE_NAMES)
     return {
@@ -76,6 +85,7 @@ def _empty_baseline() -> dict[str, Any]:
             "reasons": [],
         },
         "robust_stats": _empty_robust_stats(),
+        "cusum_state": _empty_cusum_state(),
     }
 
 
@@ -127,6 +137,7 @@ def _normalize_baseline(value: Any) -> dict[str, Any]:
         baseline["cadence_stats"] = {**_empty_baseline()["cadence_stats"], **value.get("cadence_stats", {})}
         baseline["last_deviation"] = {**_empty_baseline()["last_deviation"], **value.get("last_deviation", {})}
         baseline["robust_stats"] = {**_empty_robust_stats(), **value.get("robust_stats", {})}
+        baseline["cusum_state"] = {**_empty_cusum_state(), **value.get("cusum_state", {})}
     return baseline
 
 
