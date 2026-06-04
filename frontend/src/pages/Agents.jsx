@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createAgent, getAgents, getAgentScore, getHealth, scoreAgentAction, setStoredApiKey } from '../api.js';
+import { createAgent, getAgents, getAgentScore, getHealth, scoreAgentAction, sendAgentTestAlert, setStoredApiKey } from '../api.js';
 import AgentList from '../components/AgentList.jsx';
 import AgentTrustChart from '../components/AgentTrustChart.jsx';
 import FlaggedActionPanel from '../components/FlaggedActionPanel.jsx';
@@ -132,6 +132,17 @@ export default function Agents() {
     }
   }
 
+  async function handleTestAlert() {
+    if (!selectedAgent) return;
+    setMessage('');
+    try {
+      const result = await sendAgentTestAlert(selectedAgent.id);
+      setMessage(result.message);
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
   return (
     <main className="app-shell agents-shell">
       <Header online={online} lastUpdated={lastUpdated} />
@@ -180,6 +191,17 @@ export default function Agents() {
             <button type="submit">Register</button>
             {registerError && <div className="form-error">{registerError}</div>}
           </form>
+        </div>
+        <div>
+          <div className="panel-label">Monitoring status</div>
+          <p>
+            {selectedAgent
+              ? selectedAgent.monitoring_status === 'active'
+                ? 'Active — ingestion or scoring has started for this wallet.'
+                : 'Pending — waiting for the first ingested or scored action.'
+              : 'Register an agent wallet to begin monitoring.'}
+          </p>
+          <button type="button" onClick={handleTestAlert} disabled={!selectedAgent}>Send test alert</button>
         </div>
         <div>
           <div className="panel-label">Score supplied action</div>

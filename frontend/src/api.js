@@ -79,4 +79,5 @@ export const revokeKey = (id) => unwrap(api.delete(`/api/admin/keys/${id}`, { he
 export const getAgents = () => unwrap(api.get('/api/v1/agents', { headers: authHeaders() }));
 export const createAgent = (payload) => unwrap(api.post('/api/v1/agents', payload, { headers: authHeaders() }));
 export const getAgentScore = (id) => unwrap(api.get(`/api/v1/agents/${id}/score`, { headers: authHeaders() }));
+export const sendAgentTestAlert = (id) => unwrap(api.post(`/api/v1/agents/${id}/test-alert`, null, { headers: authHeaders() }));
 export const scoreAgentAction = (payload) => unwrap(api.post('/api/v1/agent-score', payload, { headers: authHeaders() }));

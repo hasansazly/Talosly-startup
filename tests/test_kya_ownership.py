@@ -142,6 +142,7 @@ def test_list_returns_only_requesting_keys_agents(monkeypatch):
                 "owner_api_key_id": 42,
                 "wallet": {"id": 11, "agent_id": 7, "chain": "ethereum", "address": "0xowned"},
                 "latest_score": {"trust_score": 91},
+                "monitoring_status": "active",
             }
         ]
 
@@ -155,3 +156,4 @@ def test_list_returns_only_requesting_keys_agents(monkeypatch):
     assert response.status_code == 200
     assert [agent["id"] for agent in response.json()] == [7]
     assert response.json()[0]["latest_score"]["trust_score"] == 91
+    assert response.json()[0]["monitoring_status"] == "active"

@@ -371,9 +371,14 @@ async def get_agents_for_owner(owner_api_key_id: int) -> list[dict[str, Any]]:
                     'confidence', agent_scores.confidence,
                     'computed_at', agent_scores.computed_at
                 )
-            END AS latest_score
+            END AS latest_score,
+            CASE
+                WHEN agent_profiles.agent_id IS NOT NULL OR agent_scores.id IS NOT NULL THEN 'active'
+                ELSE 'pending'
+            END AS monitoring_status
         FROM agents
         JOIN agent_wallets ON agent_wallets.agent_id = agents.id
+        LEFT JOIN agent_profiles ON agent_profiles.agent_id = agents.id
         LEFT JOIN LATERAL (
             SELECT *
             FROM agent_scores

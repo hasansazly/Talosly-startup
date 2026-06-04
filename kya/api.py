@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from backend import database as db
 from backend.middleware.auth import verify_api_key
+from backend.services.telegram import TelegramService
 from kya.config import kya_settings
 from kya.features import build_feature_vector
 from kya.ingest import AgentEvent
@@ -119,6 +120,26 @@ async def get_agent_score(agent_id: int, api_key: dict = Depends(verify_api_key)
     if not row:
         raise HTTPException(status_code=404, detail={"error": "Agent score not found", "detail": str(agent_id)})
     return row
+
+
+@router.post("/v1/agents/{agent_id}/test-alert")
+async def send_agent_test_alert(agent_id: int, api_key: dict = Depends(verify_api_key)):
+    agent = await db.get_agent_for_owner(agent_id, api_key["id"])
+    if not agent:
+        raise HTTPException(status_code=404, detail={"error": "Agent not found", "detail": str(agent_id)})
+
+    delivered = await TelegramService().send_message(
+        f"Talosly KYA test alert for {agent['name']}. Monitoring delivery is configured."
+    )
+    if not delivered:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Test alert delivery failed",
+                "detail": "Check the configured Telegram bot token and chat ID",
+            },
+        )
+    return {"status": "success", "message": "Test alert sent. Monitoring delivery confirmed."}
 
 
 @router.post("/v1/agent-score")
