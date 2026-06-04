@@ -8,6 +8,9 @@ class KYASettings(BaseSettings):
     kya_enable_changepoint: bool = False
     kya_cusum_drift: float = 0.01
     kya_cusum_threshold: float = 0.25
+    kya_w_base: float = 1.0
+    kya_w_mahalanobis: float = 1.0
+    kya_w_changepoint: float = 1.0
 
     class Config:
         env_file = ".env"
