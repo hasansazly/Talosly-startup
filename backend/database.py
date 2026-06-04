@@ -307,10 +307,12 @@ async def _create_kya_tables(conn: asyncpg.Connection) -> None:
             name TEXT NOT NULL,
             principal_ref TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'active',
+            owner_api_key_id INTEGER REFERENCES api_keys(id),
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
     )
+    await conn.execute("ALTER TABLE agents ADD COLUMN IF NOT EXISTS owner_api_key_id INTEGER")
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS agent_wallets (
@@ -343,6 +345,78 @@ async def _create_kya_tables(conn: asyncpg.Connection) -> None:
             computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
+    )
+
+
+async def get_agents_for_owner(owner_api_key_id: int) -> list[dict[str, Any]]:
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT
+            agents.*,
+            jsonb_build_object(
+                'id', agent_wallets.id,
+                'agent_id', agent_wallets.agent_id,
+                'chain', agent_wallets.chain,
+                'address', agent_wallets.address
+            ) AS wallet,
+            CASE
+                WHEN agent_scores.id IS NULL THEN NULL
+                ELSE jsonb_build_object(
+                    'id', agent_scores.id,
+                    'agent_id', agent_scores.agent_id,
+                    'trust_score', agent_scores.trust_score,
+                    'risk_factors', agent_scores.risk_factors,
+                    'shap_top', agent_scores.shap_top,
+                    'confidence', agent_scores.confidence,
+                    'computed_at', agent_scores.computed_at
+                )
+            END AS latest_score
+        FROM agents
+        JOIN agent_wallets ON agent_wallets.agent_id = agents.id
+        LEFT JOIN LATERAL (
+            SELECT *
+            FROM agent_scores
+            WHERE agent_scores.agent_id = agents.id
+            ORDER BY computed_at DESC
+            LIMIT 1
+        ) AS agent_scores ON TRUE
+        WHERE agents.owner_api_key_id = $1
+        ORDER BY agents.created_at DESC
+        """,
+        owner_api_key_id,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_agent_for_owner(agent_id: int, owner_api_key_id: int) -> dict[str, Any] | None:
+    pool = await get_pool()
+    return _record_to_dict(
+        await pool.fetchrow(
+            "SELECT * FROM agents WHERE id = $1 AND owner_api_key_id = $2",
+            agent_id,
+            owner_api_key_id,
+        )
+    )
+
+
+async def get_agent_score_for_owner(agent_id: int, owner_api_key_id: int) -> dict[str, Any] | None:
+    pool = await get_pool()
+    return _record_to_dict(
+        await pool.fetchrow(
+            """
+            SELECT agent_scores.id, agent_scores.agent_id, agent_scores.trust_score,
+                   agent_scores.risk_factors, agent_scores.shap_top, agent_scores.confidence,
+                   agent_scores.computed_at
+            FROM agent_scores
+            JOIN agents ON agents.id = agent_scores.agent_id
+            WHERE agent_scores.agent_id = $1 AND agents.owner_api_key_id = $2
+            ORDER BY agent_scores.computed_at DESC
+            LIMIT 1
+            """,
+            agent_id,
+            owner_api_key_id,
+        )
     )
 
 

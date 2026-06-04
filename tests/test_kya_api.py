@@ -22,10 +22,23 @@ def test_kya_register_agent_requires_api_key():
 def test_kya_register_agent_connects_wallet(monkeypatch):
     captured = []
 
-    class FakePool:
+    class FakeConnection:
         async def fetchval(self, query, *args):
             captured.append({"query": query, "args": args})
             return 7 if "INSERT INTO agents" in query else 11
+
+        def transaction(self):
+            return self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _traceback):
+            return False
+
+    class FakePool:
+        def acquire(self):
+            return FakeConnection()
 
     async def fake_get_pool():
         return FakePool()
@@ -53,31 +66,27 @@ def test_kya_register_agent_connects_wallet(monkeypatch):
         "chain": "ethereum",
         "address": "0xagent",
     }
-    assert captured[0]["args"] == ("Treasury Agent", "agent://treasury", "active")
+    assert captured[0]["args"] == ("Treasury Agent", "agent://treasury", "active", 42)
     assert captured[1]["args"] == (7, "ethereum", "0xagent")
 
 
 def test_kya_get_agent_score_returns_latest_score(monkeypatch):
     computed_at = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
 
-    class FakePool:
-        async def fetchrow(self, _query, agent_id):
-            assert agent_id == 7
-            return {
-                "id": 99,
-                "agent_id": 7,
-                "trust_score": 21,
-                "risk_factors": ["new_counterparty"],
-                "shap_top": [{"feature": "velocity", "shap": 0.12}],
-                "confidence": 0.8,
-                "computed_at": computed_at,
-            }
-
-    async def fake_get_pool():
-        return FakePool()
+    async def fake_get_agent_score_for_owner(agent_id, owner_api_key_id):
+        assert (agent_id, owner_api_key_id) == (7, 42)
+        return {
+            "id": 99,
+            "agent_id": 7,
+            "trust_score": 21,
+            "risk_factors": ["new_counterparty"],
+            "shap_top": [{"feature": "velocity", "shap": 0.12}],
+            "confidence": 0.8,
+            "computed_at": computed_at,
+        }
 
     app.dependency_overrides[verify_api_key] = lambda: {"id": 42}
-    monkeypatch.setattr("kya.api.db.get_pool", fake_get_pool)
+    monkeypatch.setattr("kya.api.db.get_agent_score_for_owner", fake_get_agent_score_for_owner)
     try:
         response = TestClient(app).get("/api/v1/agents/7/score")
     finally:
@@ -95,8 +104,12 @@ def test_kya_get_agent_score_returns_latest_score(monkeypatch):
     }
 
 
-def test_kya_agent_score_is_disabled_by_default():
+def test_kya_agent_score_is_disabled_by_default(monkeypatch):
+    async def fake_get_agent_for_owner(_agent_id, _owner_api_key_id):
+        return {"id": 7}
+
     app.dependency_overrides[verify_api_key] = lambda: {"id": 42}
+    monkeypatch.setattr("kya.api.db.get_agent_for_owner", fake_get_agent_for_owner)
     try:
         response = TestClient(app).post(
             "/api/v1/agent-score",
@@ -132,8 +145,12 @@ def test_kya_agent_score_scores_supplied_action_when_enabled(monkeypatch):
     async def fake_get_pool():
         return FakePool()
 
+    async def fake_get_agent_for_owner(_agent_id, _owner_api_key_id):
+        return {"id": 7}
+
     app.dependency_overrides[verify_api_key] = lambda: {"id": 42}
     monkeypatch.setattr("kya.api.kya_settings.enable_kya", True)
+    monkeypatch.setattr("kya.api.db.get_agent_for_owner", fake_get_agent_for_owner)
     monkeypatch.setattr("kya.score.db.get_pool", fake_get_pool)
     try:
         response = TestClient(app).post(

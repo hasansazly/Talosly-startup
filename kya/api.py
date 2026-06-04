@@ -39,30 +39,38 @@ class AgentActionRequest(BaseModel):
     baseline: dict[str, Any] = Field(default_factory=dict)
 
 
+@router.get("/v1/agents")
+async def list_agents(api_key: dict = Depends(verify_api_key)):
+    return await db.get_agents_for_owner(api_key["id"])
+
+
 @router.post("/v1/agents", status_code=201)
 async def register_agent(payload: AgentCreateRequest, api_key: dict = Depends(verify_api_key)):
     try:
         pool = await db.get_pool()
-        agent_id = await pool.fetchval(
-            """
-            INSERT INTO agents (name, principal_ref, status)
-            VALUES ($1, $2, $3)
-            RETURNING id
-            """,
-            payload.name,
-            payload.principal_ref,
-            payload.status,
-        )
-        wallet_id = await pool.fetchval(
-            """
-            INSERT INTO agent_wallets (agent_id, chain, address)
-            VALUES ($1, $2, $3)
-            RETURNING id
-            """,
-            agent_id,
-            payload.chain,
-            payload.wallet_address,
-        )
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                agent_id = await conn.fetchval(
+                    """
+                    INSERT INTO agents (name, principal_ref, status, owner_api_key_id)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING id
+                    """,
+                    payload.name,
+                    payload.principal_ref,
+                    payload.status,
+                    api_key["id"],
+                )
+                wallet_id = await conn.fetchval(
+                    """
+                    INSERT INTO agent_wallets (agent_id, chain, address)
+                    VALUES ($1, $2, $3)
+                    RETURNING id
+                    """,
+                    agent_id,
+                    payload.chain,
+                    payload.wallet_address,
+                )
     except asyncpg.UniqueViolationError:
         raise HTTPException(status_code=409, detail={"error": "Agent wallet already exists", "detail": payload.wallet_address}) from None
     return {
@@ -82,24 +90,16 @@ async def register_agent(payload: AgentCreateRequest, api_key: dict = Depends(ve
 
 @router.get("/v1/agents/{agent_id}/score")
 async def get_agent_score(agent_id: int, api_key: dict = Depends(verify_api_key)):
-    pool = await db.get_pool()
-    row = await pool.fetchrow(
-        """
-        SELECT id, agent_id, trust_score, risk_factors, shap_top, confidence, computed_at
-        FROM agent_scores
-        WHERE agent_id = $1
-        ORDER BY computed_at DESC
-        LIMIT 1
-        """,
-        agent_id,
-    )
+    row = await db.get_agent_score_for_owner(agent_id, api_key["id"])
     if not row:
         raise HTTPException(status_code=404, detail={"error": "Agent score not found", "detail": str(agent_id)})
-    return dict(row)
+    return row
 
 
 @router.post("/v1/agent-score")
 async def score_agent_action(payload: AgentActionRequest, api_key: dict = Depends(verify_api_key)):
+    if not await db.get_agent_for_owner(payload.agent_id, api_key["id"]):
+        raise HTTPException(status_code=404, detail={"error": "Agent not found", "detail": str(payload.agent_id)})
     if not kya_settings.enable_kya:
         raise HTTPException(status_code=404, detail={"error": "KYA disabled", "detail": "Set ENABLE_KYA=true to enable agent scoring."})
 
