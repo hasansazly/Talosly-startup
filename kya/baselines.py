@@ -4,15 +4,45 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import warnings
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
+import numpy as np
+from sklearn.covariance import LedoitWolf, MinCovDet
+
 from backend import database as db
+from kya.features import build_feature_vector
 from kya.ingest import AgentEvent
+from scoring.layer3 import FEATURE_NAMES
 
 MAX_SET_ITEMS = 200
 MIN_EVENTS_FOR_DEVIATION = 3
+ROBUST_STATS_WINDOW_SIZE = max(int(os.getenv("KYA_ROBUST_STATS_WINDOW_SIZE", "200")), 1)
+ROBUST_STATS_MIN_SAMPLES = max(int(os.getenv("KYA_ROBUST_STATS_MIN_SAMPLES", "20")), 1)
+ROBUST_STATS_COVARIANCE_INTERVAL = max(int(os.getenv("KYA_ROBUST_STATS_COVARIANCE_INTERVAL", "5")), 1)
+ROBUST_STATS_DIAGONAL_FLOOR = 1e-8
+
+
+def _empty_robust_stats() -> dict[str, Any]:
+    feature_count = len(FEATURE_NAMES)
+    return {
+        "feature_names": list(FEATURE_NAMES),
+        "sample_count": 0,
+        "observation_count": 0,
+        "window_size": ROBUST_STATS_WINDOW_SIZE,
+        "min_samples": ROBUST_STATS_MIN_SAMPLES,
+        "low_confidence": True,
+        "median": [0.0] * feature_count,
+        "mad": [0.0] * feature_count,
+        "covariance": _diagonal_covariance(np.zeros((0, feature_count))).tolist(),
+        "covariance_method": "diagonal",
+        "covariance_sample_count": 0,
+        "covariance_observation_count": 0,
+        "samples": [],
+    }
 
 
 def _empty_baseline() -> dict[str, Any]:
@@ -45,6 +75,7 @@ def _empty_baseline() -> dict[str, Any]:
             "score": 0.0,
             "reasons": [],
         },
+        "robust_stats": _empty_robust_stats(),
     }
 
 
@@ -57,11 +88,15 @@ async def get_baseline(agent_id: int) -> dict[str, Any]:
     return _normalize_baseline(row["baseline"])
 
 
-async def update_baseline(agent_id: int, event: AgentEvent) -> dict[str, Any]:
+async def update_baseline(
+    agent_id: int,
+    event: AgentEvent,
+    feature_vector: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Incrementally update one agent baseline and persist it to ``agent_profiles``."""
     baseline = await get_baseline(agent_id)
     deviation = _detect_deviation(baseline, event)
-    updated = _apply_event(baseline, event)
+    updated = _apply_event(baseline, event, feature_vector)
     updated["last_deviation"] = deviation
 
     pool = await db.get_pool()
@@ -91,10 +126,15 @@ def _normalize_baseline(value: Any) -> dict[str, Any]:
         baseline["value_stats"] = {**_empty_baseline()["value_stats"], **value.get("value_stats", {})}
         baseline["cadence_stats"] = {**_empty_baseline()["cadence_stats"], **value.get("cadence_stats", {})}
         baseline["last_deviation"] = {**_empty_baseline()["last_deviation"], **value.get("last_deviation", {})}
+        baseline["robust_stats"] = {**_empty_robust_stats(), **value.get("robust_stats", {})}
     return baseline
 
 
-def _apply_event(baseline: dict[str, Any], event: AgentEvent) -> dict[str, Any]:
+def _apply_event(
+    baseline: dict[str, Any],
+    event: AgentEvent,
+    feature_vector: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     updated = deepcopy(baseline)
     updated["event_count"] = int(updated.get("event_count") or 0) + 1
     updated["confidence"] = _confidence(updated["event_count"])
@@ -116,7 +156,116 @@ def _apply_event(baseline: dict[str, Any], event: AgentEvent) -> dict[str, Any]:
         std_key="std",
     )
     updated["cadence_stats"] = _update_cadence(updated.get("cadence_stats") or {}, _event_timestamp(event))
+    updated["robust_stats"] = _update_robust_stats(
+        updated.get("robust_stats") or {},
+        feature_vector or build_feature_vector(event, baseline),
+    )
     return updated
+
+
+def _update_robust_stats(stats: dict[str, Any], features: dict[str, Any]) -> dict[str, Any]:
+    normalized = {**_empty_robust_stats(), **stats}
+    sample = [_numeric_feature(features.get(name, 0.0)) for name in FEATURE_NAMES]
+    samples = [
+        [_numeric_feature(value) for value in row]
+        for row in normalized.get("samples") or []
+        if isinstance(row, list) and len(row) == len(FEATURE_NAMES)
+    ]
+    samples.append(sample)
+    samples = samples[-ROBUST_STATS_WINDOW_SIZE:]
+
+    matrix = np.asarray(samples, dtype=float)
+    median = np.median(matrix, axis=0)
+    mad = np.median(np.abs(matrix - median), axis=0)
+    sample_count = len(samples)
+    observation_count = int(normalized.get("observation_count") or 0) + 1
+    low_confidence = sample_count < ROBUST_STATS_MIN_SAMPLES
+    covariance_sample_count = int(normalized.get("covariance_sample_count") or 0)
+    covariance_observation_count = int(normalized.get("covariance_observation_count") or 0)
+    should_recompute = (
+        low_confidence
+        or covariance_sample_count < ROBUST_STATS_MIN_SAMPLES
+        or observation_count - covariance_observation_count >= ROBUST_STATS_COVARIANCE_INTERVAL
+    )
+
+    covariance = normalized.get("covariance")
+    covariance_method = str(normalized.get("covariance_method") or "diagonal")
+    if should_recompute:
+        covariance, covariance_method = _robust_covariance(matrix, low_confidence=low_confidence)
+        covariance_sample_count = sample_count
+        covariance_observation_count = observation_count
+
+    return {
+        "feature_names": list(FEATURE_NAMES),
+        "sample_count": sample_count,
+        "observation_count": observation_count,
+        "window_size": ROBUST_STATS_WINDOW_SIZE,
+        "min_samples": ROBUST_STATS_MIN_SAMPLES,
+        "low_confidence": low_confidence,
+        "median": _rounded_vector(median),
+        "mad": _rounded_vector(mad),
+        "covariance": _rounded_matrix(np.asarray(covariance, dtype=float)),
+        "covariance_method": covariance_method,
+        "covariance_sample_count": covariance_sample_count,
+        "covariance_observation_count": covariance_observation_count,
+        "samples": samples,
+    }
+
+
+def _robust_covariance(matrix: np.ndarray, *, low_confidence: bool) -> tuple[np.ndarray, str]:
+    if not low_confidence:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                covariance = MinCovDet(random_state=0).fit(matrix).covariance_
+            if _is_valid_covariance(covariance):
+                return covariance, "min_cov_det"
+        except (ValueError, np.linalg.LinAlgError):
+            pass
+
+    if len(matrix) >= 2:
+        try:
+            covariance = LedoitWolf().fit(matrix).covariance_
+            if _is_valid_covariance(covariance):
+                return covariance, "ledoit_wolf"
+        except (ValueError, np.linalg.LinAlgError):
+            pass
+
+    return _diagonal_covariance(matrix), "diagonal"
+
+
+def _is_valid_covariance(covariance: np.ndarray) -> bool:
+    covariance = np.asarray(covariance, dtype=float)
+    return (
+        covariance.shape == (len(FEATURE_NAMES), len(FEATURE_NAMES))
+        and np.isfinite(covariance).all()
+        and np.linalg.matrix_rank(covariance) == len(FEATURE_NAMES)
+    )
+
+
+def _diagonal_covariance(matrix: np.ndarray) -> np.ndarray:
+    feature_count = len(FEATURE_NAMES)
+    if len(matrix) >= 2:
+        variances = np.var(matrix, axis=0, ddof=1)
+    else:
+        variances = np.zeros(feature_count)
+    return np.diag(np.maximum(variances, ROBUST_STATS_DIAGONAL_FLOOR))
+
+
+def _numeric_feature(value: Any) -> float:
+    try:
+        numeric = float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return numeric if math.isfinite(numeric) else 0.0
+
+
+def _rounded_vector(values: np.ndarray) -> list[float]:
+    return [round(float(value), 8) for value in values]
+
+
+def _rounded_matrix(values: np.ndarray) -> list[list[float]]:
+    return [_rounded_vector(row) for row in values]
 
 
 def _detect_deviation(baseline: dict[str, Any], event: AgentEvent) -> dict[str, Any]:

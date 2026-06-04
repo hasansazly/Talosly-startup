@@ -124,8 +124,8 @@ class TaloslyWorker:
                 continue
             seen.add(event.tx_hash)
             baseline = await get_baseline(agent_id)
-            build_feature_vector(event, baseline)
-            updated_baseline = await update_baseline(agent_id, event)
+            features = build_feature_vector(event, baseline)
+            updated_baseline = await update_baseline(agent_id, event, features)
             score = await score_agent_event(agent_id, event, updated_baseline)
             await send_agent_score_alert(
                 {
