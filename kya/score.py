@@ -8,9 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from backend import database as db
+from backend.services.logger import logger as structured_logger
 from kya.config import kya_settings
 from kya.features import build_feature_vector
 from kya.ingest import AgentEvent
+from kya.receipts.keys import get_signing_key
+from kya.receipts.receipt import build_receipt
+from kya.receipts.store import append_receipt, previous_receipt_hash
 from kya.signals.changepoint import ChangepointSignal, compute_changepoint_signal
 from kya.signals.mahalanobis import MahalanobisSignal, compute_mahalanobis_signal
 from scoring.cost_tracker import CostTracker, CostReport, estimate_cost_usd
@@ -18,6 +22,7 @@ from scoring.layer3 import EnsembleResult, Layer3MLEnsemble, active_mode, reload
 
 KYA_MODEL_DIR = Path("models/kya")
 _default_kya_layer3: Layer3MLEnsemble | None = None
+RECEIPT_EMIT_FAILURES = 0
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,7 @@ async def score_agent_event(
         layer3=layer3_result.to_dict(),
     )
     await _persist_agent_score(score)
+    await _emit_action_receipt(score, event, features, mahalanobis, changepoint)
     if changepoint.enabled:
         await _persist_cusum_state(agent_id, changepoint.cusum_state)
     return score
@@ -197,6 +203,64 @@ async def _persist_agent_score(score: AgentTrustScore) -> None:
         json.dumps(score.shap_top),
         score.confidence,
     )
+
+
+async def _emit_action_receipt(
+    score: AgentTrustScore,
+    event: AgentEvent,
+    features: dict[str, Any],
+    mahalanobis: MahalanobisSignal,
+    changepoint: ChangepointSignal,
+) -> None:
+    global RECEIPT_EMIT_FAILURES
+    try:
+        pool = await db.get_pool()
+        previous_hash = await previous_receipt_hash(pool, score.agent_id)
+        receipt = build_receipt(
+            agent_id=score.agent_id,
+            action_payload=asdict(event),
+            decision={
+                "trust_score": score.trust_score,
+                "risk_factors": score.risk_factors,
+                "shap_top": score.shap_top,
+                "confidence": score.confidence,
+            },
+            signals_fired=_signals_fired(features, mahalanobis, changepoint),
+            previous_hash=previous_hash,
+            signing_key=get_signing_key(),
+        )
+        await append_receipt(pool, receipt)
+    except Exception as exc:
+        RECEIPT_EMIT_FAILURES += 1
+        structured_logger.error(
+            "kya.receipt_emit.failed",
+            agent_id=score.agent_id,
+            failures=RECEIPT_EMIT_FAILURES,
+            error=str(exc),
+        )
+
+
+def _signals_fired(
+    features: dict[str, Any],
+    mahalanobis: MahalanobisSignal,
+    changepoint: ChangepointSignal,
+) -> list[str]:
+    signals = []
+    if mahalanobis.enabled:
+        signals.append("mahalanobis")
+    if changepoint.enabled:
+        signals.append("changepoint")
+    for key in (
+        "kya_new_counterparty",
+        "kya_unseen_selector",
+        "kya_off_hours",
+        "kya_cadence_break",
+    ):
+        if features.get(key):
+            signals.append(key)
+    if float(features.get("kya_value_z_score") or 0.0) >= 3.0:
+        signals.append("kya_value_outlier")
+    return signals
 
 
 async def _persist_cusum_state(agent_id: int, cusum_state: dict[str, Any]) -> None:

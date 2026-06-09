@@ -2,6 +2,7 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 asyncpg==0.29.0
 alembic==1.13.2
+cryptography
 httpx==0.27.2
 websockets==12.0
 openai==1.59.7

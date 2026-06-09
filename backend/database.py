@@ -346,6 +346,58 @@ async def _create_kya_tables(conn: asyncpg.Connection) -> None:
         )
         """
     )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS action_receipts (
+            id TEXT PRIMARY KEY,
+            version TEXT NOT NULL,
+            agent_id INTEGER NOT NULL REFERENCES agents(id),
+            action_payload JSONB NOT NULL,
+            decision JSONB NOT NULL,
+            signals_fired JSONB NOT NULL DEFAULT '[]'::jsonb,
+            previous_hash TEXT,
+            public_key TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            receipt_hash TEXT NOT NULL UNIQUE,
+            signature TEXT NOT NULL
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE OR REPLACE FUNCTION prevent_action_receipt_mutation()
+        RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION 'action_receipts is append-only';
+        END;
+        $$ LANGUAGE plpgsql;
+        """
+    )
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_trigger
+                WHERE tgname = 'action_receipts_no_update'
+            ) THEN
+                CREATE TRIGGER action_receipts_no_update
+                BEFORE UPDATE ON action_receipts
+                FOR EACH ROW EXECUTE FUNCTION prevent_action_receipt_mutation();
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_trigger
+                WHERE tgname = 'action_receipts_no_delete'
+            ) THEN
+                CREATE TRIGGER action_receipts_no_delete
+                BEFORE DELETE ON action_receipts
+                FOR EACH ROW EXECUTE FUNCTION prevent_action_receipt_mutation();
+            END IF;
+        END $$;
+        """
+    )
 
 
 async def get_agents_for_owner(owner_api_key_id: int) -> list[dict[str, Any]]:

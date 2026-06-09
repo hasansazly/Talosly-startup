@@ -16,6 +16,8 @@ from backend.services.telegram import TelegramService
 from kya.config import kya_settings
 from kya.features import build_feature_vector
 from kya.ingest import AgentEvent
+from kya.receipts.receipt import verify_receipt
+from kya.receipts.store import get_receipt_for_owner, list_receipts_for_agent
 from kya.score import score_agent_event
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
@@ -120,6 +122,24 @@ async def get_agent_score(agent_id: int, api_key: dict = Depends(verify_api_key)
     if not row:
         raise HTTPException(status_code=404, detail={"error": "Agent score not found", "detail": str(agent_id)})
     return row
+
+
+@router.get("/v1/agents/{agent_id}/receipts")
+async def get_agent_receipts(agent_id: int, limit: int = 100, api_key: dict = Depends(verify_api_key)):
+    agent = await db.get_agent_for_owner(agent_id, api_key["id"])
+    if not agent:
+        raise HTTPException(status_code=404, detail={"error": "Agent not found", "detail": str(agent_id)})
+    pool = await db.get_pool()
+    return await list_receipts_for_agent(pool, agent_id, limit)
+
+
+@router.get("/v1/receipts/{receipt_id}/verify")
+async def verify_action_receipt(receipt_id: str, api_key: dict = Depends(verify_api_key)):
+    pool = await db.get_pool()
+    receipt = await get_receipt_for_owner(pool, receipt_id, api_key["id"])
+    if not receipt:
+        raise HTTPException(status_code=404, detail={"error": "Receipt not found", "detail": receipt_id})
+    return {"receipt": receipt, "verification": verify_receipt(receipt)}
 
 
 @router.post("/v1/agents/{agent_id}/test-alert")
