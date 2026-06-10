@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { approveWaitlist, createAdminKey, getAdminKeys, getAdminMetrics, getAdminSettings, getAdminWaitlist, rejectWaitlist, revokeKey, updateAdminSetting, validateAdminKey } from '../api.js';
+import Nav from '../components/Nav.jsx';
 
 export default function Admin() {
   const [secret, setSecret] = useState(sessionStorage.getItem('talosly_admin_secret') || '');
@@ -91,8 +92,12 @@ export default function Admin() {
   if (!secret || !metrics) {
     return (
       <main className="app-shell">
+        <Nav online={false} />
         <section className="panel key-panel">
-          <h1>Talosly Admin</h1>
+          <div>
+            <div className="panel-label">Admin access</div>
+            <h2 style={{ marginTop: 6 }}>Talosly Admin</h2>
+          </div>
           <form className="add-form" onSubmit={(event) => { event.preventDefault(); load(); }}>
             <input type="password" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder="ADMIN_SECRET" required />
             <button>Unlock</button>
@@ -106,7 +111,7 @@ export default function Admin() {
   const overview = metrics.overview || {};
   return (
     <main className="app-shell admin-shell">
-      <header className="topbar"><div><div className="wordmark">TALOSLY</div><div className="subtitle">Admin</div></div></header>
+      <Nav online={true} />
       <section className="stats-row">
         <div><span>Protocols</span><strong>{overview.protocols_monitored || 0}</strong></div>
         <div><span>Transactions</span><strong>{overview.transactions_scored_total || 0}</strong></div>

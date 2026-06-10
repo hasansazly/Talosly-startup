@@ -81,3 +81,5 @@ export const createAgent = (payload) => unwrap(api.post('/api/v1/agents', payloa
 export const getAgentScore = (id) => unwrap(api.get(`/api/v1/agents/${id}/score`, { headers: authHeaders() }));
 export const sendAgentTestAlert = (id) => unwrap(api.post(`/api/v1/agents/${id}/test-alert`, null, { headers: authHeaders() }));
 export const scoreAgentAction = (payload) => unwrap(api.post('/api/v1/agent-score', payload, { headers: authHeaders() }));
+export const getAgentReceipts = (agentId, limit = 50) => unwrap(api.get(`/api/v1/agents/${agentId}/receipts`, { params: { limit }, headers: authHeaders() }));
+export const verifyReceipt = (receiptId) => unwrap(api.get(`/api/v1/receipts/${receiptId}/verify`, { headers: authHeaders() }));

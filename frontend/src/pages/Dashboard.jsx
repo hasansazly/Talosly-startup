@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { addProtocol, getAlerts, getHealth, getProtocols, getPublicSettings, getTransactions, setStoredApiKey } from '../api.js';
 import AlertDetailModal from '../components/AlertDetailModal.jsx';
 import AlertFeed, { copyAlertSummary, downloadAlertJson } from '../components/AlertFeed.jsx';
-import Header from '../components/Header.jsx';
+import Nav from '../components/Nav.jsx';
 import ProtocolCard from '../components/ProtocolCard.jsx';
 import SystemStatusPanel from '../components/SystemStatusPanel.jsx';
 import TransactionRow from '../components/TransactionRow.jsx';
@@ -60,7 +60,7 @@ export default function Dashboard() {
 
   return (
     <main className="app-shell">
-      <Header online={online} lastUpdated={lastUpdated} />
+      <Nav online={online} lastUpdated={lastUpdated} />
       <WorkerStatusBar online={online} lastSignalAt={lastSignalAt} protocolCount={protocols.length} />
       {!savedApiKey && (
         <section className="panel key-panel">
