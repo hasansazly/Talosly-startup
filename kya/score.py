@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from backend import database as db
 from backend.services.logger import logger as structured_logger
 from kya.config import kya_settings
+from kya.decision import DecisionPolicy, decide, policy_from_env
 from kya.features import build_feature_vector
 from kya.ingest import AgentEvent
 from kya.receipts.keys import get_signing_key
@@ -23,6 +24,7 @@ from scoring.layer3 import EnsembleResult, Layer3MLEnsemble, active_mode, reload
 KYA_MODEL_DIR = Path("models/kya")
 _default_kya_layer3: Layer3MLEnsemble | None = None
 RECEIPT_EMIT_FAILURES = 0
+_DECISION_POLICY = policy_from_env()
 
 
 @dataclass(frozen=True)
@@ -33,9 +35,19 @@ class AgentTrustScore:
     shap_top: list[dict[str, Any]]
     confidence: float
     layer3: dict[str, Any]
+    signals_fired: list[str] = field(default_factory=list)
+    decision: str = ""
+    decision_detail: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "agent_id": self.agent_id,
+            "trust_score": self.trust_score,
+            "risk_factors": self.risk_factors,
+            "shap_top": self.shap_top,
+            "confidence": self.confidence,
+            "layer3": self.layer3,
+        }
 
 
 async def score_agent_event(
@@ -59,6 +71,8 @@ async def score_agent_event(
         risk_factors = _signal_risk_factors(risk_factors, mahalanobis, changepoint)
         shap_top = _signal_shap_top(shap_top, mahalanobis, changepoint)
     confidence = _confidence(layer3_result, baseline)
+    signals_fired = _signals_fired(features, mahalanobis, changepoint)
+    score_decision = decide(max(0, min(trust_score, 100)), signals_fired, get_decision_policy())
 
     score = AgentTrustScore(
         agent_id=agent_id,
@@ -67,12 +81,19 @@ async def score_agent_event(
         shap_top=shap_top,
         confidence=confidence,
         layer3=layer3_result.to_dict(),
+        signals_fired=signals_fired,
+        decision=score_decision.decision,
+        decision_detail=score_decision.to_dict(),
     )
     await _persist_agent_score(score)
     await _emit_action_receipt(score, event, features, mahalanobis, changepoint)
     if changepoint.enabled:
         await _persist_cusum_state(agent_id, changepoint.cusum_state)
     return score
+
+
+def get_decision_policy() -> DecisionPolicy:
+    return _DECISION_POLICY
 
 
 def _get_kya_layer3() -> Layer3MLEnsemble:
@@ -224,8 +245,10 @@ async def _emit_action_receipt(
                 "risk_factors": score.risk_factors,
                 "shap_top": score.shap_top,
                 "confidence": score.confidence,
+                "decision": score.decision,
+                "decision_detail": score.decision_detail,
             },
-            signals_fired=_signals_fired(features, mahalanobis, changepoint),
+            signals_fired=score.signals_fired,
             previous_hash=previous_hash,
             signing_key=get_signing_key(),
         )
@@ -286,6 +309,7 @@ __all__ = [
     "active_mode",
     "estimate_cost_usd",
     "reload_models",
+    "get_decision_policy",
     "score_agent_event",
     "score_transaction",
 ]

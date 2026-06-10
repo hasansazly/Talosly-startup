@@ -5,6 +5,7 @@ import pytest
 
 from kya.ingest import AgentEvent
 from kya.score import score_agent_event
+from kya.receipts.signing import load_signing_key
 
 
 class FakeScorePool:
@@ -90,6 +91,8 @@ async def test_baseline_consistent_event_scores_low_risk(score_pool):
     assert "value_outlier" not in score.risk_factors
     assert len(score.shap_top) == 3
     assert score.confidence > 0
+    assert score.decision == "allow"
+    assert score.decision_detail["decision"] == score.decision
     assert score_pool.rows[-1]["trust_score"] == score.trust_score
     assert score_pool.rows[-1]["shap_top"] == score.shap_top
 
@@ -116,4 +119,42 @@ async def test_strongly_deviating_event_scores_high_risk_with_shap(score_pool):
     assert len(score.shap_top) == 3
     assert any(item["shap"] > 0 for item in score.shap_top)
     assert score.layer3["mode"] == "heuristic"
+    assert score.decision == "block"
+    assert set(score.signals_fired) >= {"kya_new_counterparty", "kya_unseen_selector", "kya_value_outlier"}
     assert score_pool.rows[-1]["risk_factors"] == score.risk_factors
+
+
+@pytest.mark.asyncio
+async def test_receipt_uses_same_decision_as_score_response(score_pool, monkeypatch):
+    captured = {}
+
+    async def fake_previous_receipt_hash(_pool, _agent_id):
+        return None
+
+    async def fake_append_receipt(_pool, receipt):
+        captured["receipt"] = receipt
+        return receipt
+
+    monkeypatch.setattr("kya.score.previous_receipt_hash", fake_previous_receipt_hash)
+    monkeypatch.setattr("kya.score.append_receipt", fake_append_receipt)
+    monkeypatch.setattr("kya.score.get_signing_key", lambda: load_signing_key("00" * 32))
+
+    event = make_event(
+        tx_hash="0xdeviates",
+        counterparty="0xnew",
+        value=50.0,
+        selector="deadbeef",
+        timestamp=datetime(2026, 1, 1, 14, tzinfo=timezone.utc),
+        raw={
+            "input": "0xdeadbeef" + "00" * 16,
+            "sender_first_seen_ts": datetime(2026, 1, 1, 13, tzinfo=timezone.utc).timestamp(),
+            "tornado_tagged": True,
+        },
+    )
+
+    score = await score_agent_event(1, event, mature_baseline())
+
+    receipt_decision = captured["receipt"]["decision"]
+    assert receipt_decision["decision"] == score.decision
+    assert receipt_decision["decision_detail"] == score.decision_detail
+    assert captured["receipt"]["signals_fired"] == score.signals_fired

@@ -197,4 +197,7 @@ def test_kya_agent_score_scores_supplied_action_when_enabled(monkeypatch):
     assert {"new_counterparty", "unseen_selector", "value_outlier"} <= set(body["risk_factors"])
     assert len(body["shap_top"]) == 3
     assert body["features"]["kya_new_counterparty"] is True
+    assert body["decision"] in {"allow", "review", "block"}
+    assert body["decision"] == body["decision_detail"]["decision"]
+    assert body["decision_detail"]["policy_version"] == "1.0.0"
     assert persisted

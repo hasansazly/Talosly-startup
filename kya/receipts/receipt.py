@@ -45,7 +45,7 @@ def build_receipt(
         "agent_id": int(agent_id),
         "action_payload": normalize_for_json(action_payload),
         "decision": normalize_for_json(decision),
-        "signals_fired": sorted(set(signals_fired)),
+        "signals_fired": list(dict.fromkeys(signals_fired)),
         "previous_hash": previous_hash,
         "public_key": signing_key.public_key,
         "created_at": created_at or _utc_now_text(),

@@ -14,11 +14,12 @@ from backend import database as db
 from backend.middleware.auth import verify_api_key
 from backend.services.telegram import TelegramService
 from kya.config import kya_settings
+from kya.decision import decide
 from kya.features import build_feature_vector
 from kya.ingest import AgentEvent
 from kya.receipts.receipt import verify_receipt
 from kya.receipts.store import get_receipt_for_owner, list_receipts_for_agent
-from kya.score import score_agent_event
+from kya.score import get_decision_policy, score_agent_event
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
 EVM_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
@@ -180,6 +181,7 @@ async def score_agent_action(payload: AgentActionRequest, api_key: dict = Depend
         raw=payload.raw,
     )
     score = await score_agent_event(payload.agent_id, event, payload.baseline)
+    decision = decide(score.trust_score, score.signals_fired, get_decision_policy())
     features = build_feature_vector(event, payload.baseline)
     return {
         "agent_id": payload.agent_id,
@@ -189,4 +191,6 @@ async def score_agent_action(payload: AgentActionRequest, api_key: dict = Depend
         "shap_top": score.shap_top,
         "confidence": score.confidence,
         "features": features,
+        "decision": decision.decision,
+        "decision_detail": decision.to_dict(),
     }
