@@ -13,8 +13,8 @@ const SAMPLE_ACTIONS = [
 ];
 
 const HERO_METRICS = [
+  ['≥95%', 'conformal coverage'],
   ['14ms', 'median score time'],
-  ['Ed25519', 'signed receipts'],
   ['0', 'money-path hooks'],
 ];
 
@@ -76,13 +76,14 @@ export default function Landing() {
           <div>
             <div className="hero-eyebrow">
               <span className="dot" />
-              Agent-wallet security command center
+              Agent-wallet security &nbsp;·&nbsp; <strong style={{ fontWeight: 800, color: '#818CF8' }}>VIGIL Engine</strong>
             </div>
             <h1>The integrity layer for <em>agent-initiated</em> financial actions.</h1>
             <p className="hero-copy">
               AI agents now move real money. Platforms that deploy them inherit liability
-              they cannot see, reconstruct, or prove. Talosly is the agent guardian:
-              behavioral baseline, change-point detection, and signed evidence for every decision.
+              they cannot see, reconstruct, or prove. Talosly runs the VIGIL engine:
+              coverage-guaranteed behavioral scoring, change-point detection, and
+              cryptographically signed evidence for every decision.
             </p>
             <div className="hero-actions">
               <a href="#apply" className="button-link">Request Access</a>
@@ -106,7 +107,7 @@ export default function Landing() {
           <div className="hero-command-deck">
             <div className="deck-status">
               <div>
-                <span>Live guardian</span>
+                <span>VIGIL Engine</span>
                 <strong>Shadow mode active</strong>
               </div>
               <div className="deck-pulse" aria-hidden="true" />
@@ -241,6 +242,53 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ── VIGIL ENGINE ─────────────────────────────────────────── */}
+      <section className="landing-band">
+        <div className="band-eyebrow"><span>The VIGIL Engine</span></div>
+        <div className="vigil-layout">
+          <div className="vigil-copy">
+            <h2>Competitors say accurate.<br />VIGIL says <em className="vigil-em">guaranteed</em>.</h2>
+            <p>
+              Every Talosly decision runs through VIGIL: a sequence model for temporal
+              pattern recognition, BOCPD for online change-point detection, conformal
+              prediction for coverage-guaranteed scoring, and a cross-agent receipt graph
+              for counterparty reputation propagation. When VIGIL produces an allow score,
+              the coverage is a mathematical construction — not a calibration heuristic.
+              That is the sentence an underwriter can price.
+            </p>
+            <p style={{ marginTop: 16 }}>
+              The receipt graph compounds: every new customer's receipts strengthen the
+              counterparty reputation signal for every existing customer.
+              The engine gets more accurate the more it is used — the network-effect
+              moat of infrastructure that never stops growing.
+            </p>
+          </div>
+          <div className="vigil-panel">
+            <div className="vigil-panel-header">
+              <span className="vigil-name-badge">VIGIL</span>
+              <span className="vigil-coverage-chip">≥ 95% coverage</span>
+            </div>
+            {[
+              ['Sequence model', 'Temporal pattern recognition across agent action history'],
+              ['BOCPD',          'Online Bayesian change-point — detects regime shift signatures'],
+              ['Conformal',      'Distribution-free coverage guarantee · valid under any future shift'],
+              ['Receipt graph',  'PageRank-over-receipts · cross-agent counterparty reputation network'],
+            ].map(([name, desc]) => (
+              <div className="vigil-layer" key={name}>
+                <span className="vigil-layer-label">{name}</span>
+                <span className="vigil-layer-desc">{desc}</span>
+              </div>
+            ))}
+            <div className="vigil-guarantee-row">
+              <span className="vigil-guarantee-label">VIGIL allow</span>
+              <span className="vigil-arrow">→</span>
+              <span className="vigil-guarantee-result">action within behavioral envelope</span>
+              <span className="vigil-coverage-chip">≥95%</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── SHADOW MODE ──────────────────────────────────────────── */}
       <section className="landing-band">
         <div className="band-eyebrow"><span>Architecture</span></div>
@@ -335,17 +383,18 @@ export default function Landing() {
         <div className="band-eyebrow"><span>Evidence Layer</span></div>
         <div className="two-col">
           <div>
-            <h2>Every decision is provable.</h2>
+            <h2>Every decision is provable. The graph compounds.</h2>
             <p>
-              Talosly emits a cryptographically signed receipt for every scored action.
-              Each receipt is SHA-256 hashed, signed with Ed25519, and chained to the
-              previous receipt via <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>previous_hash</code>.
-              The store is append-only: PostgreSQL triggers reject any UPDATE or DELETE.
+              Talosly emits a cryptographically signed receipt for every scored action:
+              Ed25519-signed, SHA-256 hash-chained, with the VIGIL coverage guarantee
+              embedded alongside the score. The store is append-only — PostgreSQL
+              triggers reject any UPDATE or DELETE.
             </p>
             <p style={{ marginTop: 16 }}>
-              You can fetch and verify any receipt independently. The verification
-              endpoint checks both hash integrity and Ed25519 signature validity.
-              This is the evidence record that survives a dispute.
+              Across agents, receipts form a directed counterparty reputation graph.
+              Every new receipt propagates trust signals across the network via
+              PageRank-over-receipts — the more agents use VIGIL, the sharper every
+              score becomes. The bureau you join, not just the tool you buy.
             </p>
           </div>
           <div className="evidence-panel">
@@ -369,6 +418,7 @@ export default function Landing() {
             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
               {[
                 ['version',   'kya-action-receipt/v1'],
+                ['coverage',  'VIGIL conformal · ≥95% guaranteed'],
                 ['signature', 'Ed25519 · base64-encoded'],
                 ['hash_valid','SHA-256 canonical JSON'],
                 ['store',     'append-only · pg triggers'],
