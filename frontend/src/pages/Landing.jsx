@@ -1,27 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { applyWaitlist, getPublicSettings, getStats } from '../api.js';
-
-function short(value) {
-  return value ? `${value.slice(0, 10)}…${value.slice(-6)}` : '—';
-}
-
-const SAMPLE_ACTIONS = [
-  { id: 1, action: 'agent://treasury/rebalance',      value: 0.5,   trust: 94 },
-  { id: 2, action: 'agent://ops/new-counterparty',    value: 142.3, trust: 11 },
-  { id: 3, action: 'agent://market-maker/quote',      value: 0.01,  trust: 88 },
-];
+import ReceiptChainHero from '../components/ReceiptChainHero.jsx';
 
 const HERO_METRICS = [
   ['≥95%', 'conformal coverage'],
   ['14ms', 'median score time'],
   ['0', 'money-path hooks'],
 ];
-
-function TrustPill({ score }) {
-  const tone = score >= 80 ? 'low' : score >= 55 ? 'medium' : 'critical';
-  return <span className={`risk-badge ${tone}`}>{score}</span>;
-}
 
 export default function Landing() {
   const [stats, setStats] = useState({ transactions_scored: 0, alerts_fired: 0 });
@@ -104,48 +90,7 @@ export default function Landing() {
             </p>
           </div>
 
-          <div className="hero-command-deck">
-            <div className="deck-status">
-              <div>
-                <span>VIGIL Engine</span>
-                <strong>Shadow mode active</strong>
-              </div>
-              <div className="deck-pulse" aria-hidden="true" />
-            </div>
-
-            <div className="deck-score">
-              <span>Trust</span>
-              <strong>94</strong>
-              <small>allow · baseline matched</small>
-            </div>
-
-            <div className="deck-timeline" aria-label="Agent evidence timeline">
-              <div>
-                <span>01</span>
-                <strong>Observed</strong>
-                <small>agent://treasury/rebalance</small>
-              </div>
-              <div>
-                <span>02</span>
-                <strong>Scored</strong>
-                <small>value, cadence, counterparty</small>
-              </div>
-              <div>
-                <span>03</span>
-                <strong>Signed</strong>
-                <small>receipt hash chained</small>
-              </div>
-            </div>
-
-            <div className="feed-header">Agent action · value · trust</div>
-            {SAMPLE_ACTIONS.map((row) => (
-              <div className="feed-row" key={row.id}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{short(row.action)}</span>
-                <span>{row.value.toFixed(3)} ETH</span>
-                <TrustPill score={row.trust} />
-              </div>
-            ))}
-          </div>
+          <ReceiptChainHero />
         </div>
       </section>
 

@@ -1275,6 +1275,71 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   border-radius: inherit;
 }
 .hero-command-deck > * { position: relative; z-index: 1; }
+
+/* ── RECEIPT CHAIN HERO ──────────────────────────────────────────────── */
+.receipt-chain-hero {
+  background: rgba(14,14,20,0.85);
+  border: 1px solid var(--landing-line-bright);
+  border-radius: 24px;
+  box-shadow:
+    0 0 0 1px rgba(99,102,241,0.08),
+    0 32px 80px rgba(0,0,0,0.65),
+    inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  height: 340px;
+  overflow: hidden;
+  position: relative;
+}
+.rch-header {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-shrink: 0;
+  justify-content: space-between;
+  padding: 12px 18px;
+}
+.rch-label {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.rch-live {
+  align-items: center;
+  color: var(--success);
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  gap: 5px;
+  letter-spacing: 0.08em;
+}
+.rch-live .dot {
+  animation: pulse 2s ease-in-out infinite;
+  background: var(--success);
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(34,197,94,0.18);
+  display: inline-block;
+  height: 7px;
+  width: 7px;
+}
+.rch-body {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+.rch-body canvas {
+  display: block;
+  height: 100%;
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
 .deck-status {
   align-items: center;
   background: rgba(99,102,241,0.10);
