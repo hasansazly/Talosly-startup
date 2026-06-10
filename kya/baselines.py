@@ -10,6 +10,7 @@ from typing import Any
 
 from backend import database as db
 from kya.ingest import AgentEvent
+from kya.bocpd import bocpd_score, bocpd_update, empty_bocpd_state
 from kya.sequence import compute_neg_log_prob, score_transition, state_from_event, update_sequence
 
 MAX_SET_ITEMS = 200
@@ -46,6 +47,7 @@ def _empty_baseline() -> dict[str, Any]:
             "score": 0.0,
             "reasons": [],
             "sequence_anomaly": 0.0,
+            "bocpd_cp_prob": 0.0,
         },
         "sequence": {
             "prev_state": None,
@@ -53,6 +55,7 @@ def _empty_baseline() -> dict[str, Any]:
             "transition_count": 0,
             "log_prob_stats": {"count": 0, "mean": 0.0, "m2": 0.0, "std": 0.0},
         },
+        "bocpd": empty_bocpd_state(),
     }
 
 
@@ -100,6 +103,7 @@ def _normalize_baseline(value: Any) -> dict[str, Any]:
         baseline["cadence_stats"] = {**_empty_baseline()["cadence_stats"], **value.get("cadence_stats", {})}
         baseline["last_deviation"] = {**_empty_baseline()["last_deviation"], **value.get("last_deviation", {})}
         baseline["sequence"] = {**_empty_baseline()["sequence"], **value.get("sequence", {})}
+        baseline["bocpd"] = {**empty_bocpd_state(), **value.get("bocpd", {})}
     return baseline
 
 
@@ -134,6 +138,9 @@ def _apply_event(baseline: dict[str, Any], event: AgentEvent) -> dict[str, Any]:
     prev_state = seq.get("prev_state")
     nlp = compute_neg_log_prob(seq, prev_state or "", curr_state) if prev_state else None
     updated["sequence"] = update_sequence(seq, prev_state, curr_state, nlp)
+
+    x_bocpd = math.log(float(event.value or 0) + 1e-9)
+    updated["bocpd"] = bocpd_update(updated.get("bocpd"), x_bocpd)
     return updated
 
 
@@ -177,12 +184,20 @@ def _detect_deviation(baseline: dict[str, Any], event: AgentEvent) -> dict[str, 
         score += seq_anomaly * 0.40
         reasons.append("sequence_break")
 
+    x_bocpd = math.log(float(event.value or 0) + 1e-9)
+    cp_prob = bocpd_score(baseline.get("bocpd"), x_bocpd)
+    if cp_prob >= 0.3:
+        score += cp_prob * 0.45
+    if cp_prob >= 0.5:
+        reasons.append("regime_change")
+
     score = round(min(score, 1.0), 4)
     return {
         "is_deviating": score >= 0.5,
         "score": score,
         "reasons": reasons,
         "sequence_anomaly": round(seq_anomaly, 4),
+        "bocpd_cp_prob": round(cp_prob, 4),
     }
 
 

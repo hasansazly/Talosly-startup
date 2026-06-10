@@ -49,6 +49,7 @@ def _human_readable_reasons(score: AgentTrustScore) -> list[str]:
         "cadence_break": "cadence break versus baseline",
         "value_outlier": "value far above baseline",
         "sequence_break": "action sequence inconsistent with agent history",
+        "regime_change": "Bayesian regime change in transaction behavior",
     }
     for factor in score.risk_factors:
         phrase = factor_phrases.get(factor)
@@ -76,6 +77,7 @@ def _humanize_feature(feature: str, item: dict[str, Any]) -> str:
         "calldata_entropy": "unusual calldata entropy",
         "gas_anomaly_zscore": "gas or cadence anomaly",
         "kya_sequence_anomaly": "trajectory anomaly in action sequence",
+        "kya_bocpd_cp_prob": "behavioral regime change (Bayesian)",
     }
     impact = item.get("shap")
     if impact is None:

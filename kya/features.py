@@ -59,6 +59,7 @@ def build_feature_vector(event: AgentEvent, baseline: dict[str, Any]) -> dict[st
         "kya_off_hours": deviation["off_hours"],
         "kya_unseen_selector": deviation["unseen_selector"],
         "kya_sequence_anomaly": deviation["sequence_anomaly"],
+        "kya_bocpd_cp_prob": deviation["bocpd_cp_prob"],
     }
     return _layer3_compatible(features)
 
@@ -74,7 +75,9 @@ def baseline_deviation_features(event: AgentEvent, baseline: dict[str, Any]) -> 
     cadence_z = _cadence_zscore(event, baseline.get("cadence_stats") or {})
     hour = str(_event_timestamp(event).hour)
 
-    seq_anomaly = float((baseline.get("last_deviation") or {}).get("sequence_anomaly") or 0.0)
+    last_dev = baseline.get("last_deviation") or {}
+    seq_anomaly = float(last_dev.get("sequence_anomaly") or 0.0)
+    bocpd_cp_prob = float(last_dev.get("bocpd_cp_prob") or 0.0)
     return {
         "new_counterparty": bool(counterparty and counterparty not in known_counterparties),
         "value_z_score": round(value_z, 4),
@@ -83,6 +86,7 @@ def baseline_deviation_features(event: AgentEvent, baseline: dict[str, Any]) -> 
         "off_hours": bool(active_hours and hour not in active_hours),
         "unseen_selector": bool(selector and selector not in selectors_seen),
         "sequence_anomaly": round(seq_anomaly, 4),
+        "bocpd_cp_prob": round(bocpd_cp_prob, 4),
     }
 
 
