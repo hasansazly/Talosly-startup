@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from pybloom_live import BloomFilter
+from pybloom_live import ScalableBloomFilter
 
 try:
     from web3 import Web3
@@ -26,16 +26,18 @@ except ImportError:
 
 
 class _AddressBloomFilter:
-    """Probabilistic Bloom Filter facade used by the pre-filter blacklist."""
+    """Bloom-backed blacklist facade with exact set confirmation."""
 
     def __init__(self, capacity: int = 100_000, error_rate: float = 0.001) -> None:
-        self._filter = BloomFilter(capacity=capacity, error_rate=error_rate)
+        self._filter = ScalableBloomFilter(initial_capacity=capacity, error_rate=error_rate)
+        self._addresses: set[str] = set()
 
     def add(self, value: str) -> None:
+        self._addresses.add(value)
         self._filter.add(value)
 
     def __contains__(self, value: str) -> bool:
-        return value in self._filter
+        return value in self._filter and value in self._addresses
 
 
 class TransactionPreFilter:
@@ -123,7 +125,7 @@ class TransactionPreFilter:
         selector = self._selector(input_data)
 
         if to_checksum in self.bloom_blacklist or from_checksum in self.bloom_blacklist:
-            return True, "Blacklisted address match caught in Bloom Filter"
+            return True, "Blacklisted address match caught in Bloom-backed blacklist"
 
         if value_wei > 100 * 10**18:
             return True, "High-value asset movement detected"

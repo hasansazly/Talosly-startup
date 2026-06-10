@@ -1,30 +1,28 @@
 # Talosly
 
-AI security monitoring for DeFi protocols.
+AI security monitoring for autonomous agent wallets.
 
-Talosly watches protocol contracts, filters noisy on-chain activity, extracts
-exploit-oriented signals, uses ML and LLM reasoning only when needed, and sends
-actionable alerts before teams miss critical transactions.
+Talosly watches registered agent wallets, builds behavioral baselines, extracts
+explainable risk signals, records signed scoring evidence, and sends actionable
+alerts before teams miss critical activity.
 
-The product is built for early DeFi teams that cannot yet afford a full
-security operations team, but still need practical monitoring, explainable risk
-scores, alert history, and replayable evidence.
+The current product surface is the agent-wallet flow. The legacy protocol
+monitoring and replay flow still exists in the codebase, but it is dormant by
+default behind `PROTOCOL_FLOW_ENABLED=false`.
 
 ## Product Snapshot
 
-Talosly is a security command center for small and mid-stage DeFi teams.
+Talosly is a security command center for teams operating autonomous wallets.
 
-The wedge is simple: most early protocols monitor risk manually through
-Etherscan, Discord, Telegram, Twitter, and scattered dashboards. Talosly turns
-that into one operational loop:
+The default operational loop is:
 
-1. Add a protocol contract.
-2. Monitor live or replayed chain activity.
-3. Filter obvious noise cheaply.
-4. Score suspicious behavior with layered ML, heuristics, and LLM analysis.
-5. Store transactions, scores, alerts, and feedback.
+1. Register an agent wallet.
+2. Ingest or submit wallet activity.
+3. Build and update behavioral baselines.
+4. Score activity with deterministic KYA logic and differentiated signals.
+5. Store trust scores, decisions, receipts, alerts, and feedback.
 6. Notify operators through Telegram.
-7. Improve detection with replay tests and known exploit data.
+7. Improve detection with tests and known exploit data.
 
 This repo is not a landing page mock. It contains the backend, frontend,
 worker, scoring stack, replay tools, tests, deployment config, and operating
@@ -32,16 +30,16 @@ playbook used to run Talosly.
 
 ## Why This Matters
 
-DeFi security is still mostly reactive for small teams. A protocol can ship with
-audits and still miss the moment a dangerous transaction touches a pool, vault,
-bridge, router, or governance contract.
+Agent-wallet security is still mostly reactive for small teams. An autonomous
+wallet can run with reviews and still miss the moment behavior breaks from its
+normal counterparty, selector, value, cadence, or time-of-day profile.
 
 The enterprise products in this category are powerful but expensive, heavy, and
 not always built for founders who need fast setup and understandable alerts.
 Talosly starts with a narrower, practical promise:
 
-- monitor the contracts a team cares about,
-- explain why a transaction looks risky,
+- monitor the wallets a team cares about,
+- explain why an action looks risky,
 - alert through channels teams already use,
 - keep cost controlled through staged routing,
 - preserve enough evidence for review and model improvement.
@@ -50,32 +48,35 @@ Talosly starts with a narrower, practical promise:
 
 Talosly currently includes:
 
-- React dashboard for protocols, transactions, alerts, replay, and admin views.
+- React dashboard for landing, agent-wallet monitoring, and admin views.
 - FastAPI backend with API key auth, admin auth, rate limiting, and settings.
 - Railway worker for live monitoring and alerting.
 - PostgreSQL persistence for protocols, transactions, alerts, feedback, waitlist,
-  settings, API keys, and scoring metrics.
+  settings, API keys, agent wallets, KYA scores, receipts, and scoring metrics.
 - Telegram alert delivery with batching, retries, dedupe, and HTML fallback.
 - Replay scripts for historical exploit-style testing.
 - Known exploit transaction database and loader.
-- Layered scoring engine from cheap filters to LLM oracle.
+- Agent scoring with behavioral baselines, signal surfacing, shared decisions,
+  and signed receipts.
+- Legacy protocol transaction scoring behind `PROTOCOL_FLOW_ENABLED=false` by
+  default, with optional Layer 4 LLM calls behind `LAYER4_LLM_ENABLED=false`.
 - Deployment split for Vercel frontend and Railway backend/worker.
 
 ## System Overview
 
 ```mermaid
 flowchart LR
-  Founder[Protocol Founder / Security Lead] --> UI[Vercel React Dashboard]
+  Operator[Agent Operator / Security Lead] --> UI[Vercel React Dashboard]
   UI -->|VITE_API_URL| API[Railway FastAPI API]
   API --> Auth[API Key + Admin Auth]
   API --> DB[(PostgreSQL)]
-  API --> Replay[Replay + Admin Tools]
+  API --> Replay[Optional Replay + Admin Tools]
 
   Worker[Railway Worker] --> DB
   Worker -->|Layer 0 optional polling| RPC[Ethereum RPC]
   Worker -->|Layer 0 optional websocket| WSS[Alchemy WebSocket]
   Worker --> Pipeline[Detection Pipeline]
-  Pipeline --> OpenAI[OpenAI Oracle]
+  Pipeline -. optional .-> OpenAI[OpenAI Oracle]
   Pipeline --> Telegram[Telegram Alerts]
 
   Data[Known Hacks + Blacklists] --> Pipeline
@@ -90,7 +91,10 @@ The architecture is intentionally split:
 - **PostgreSQL** stores operational state.
 - **RPC polling** can be turned off instantly with `ENABLE_RPC_POLLING=false`.
 - **Layer 0 ingestion** covers raw RPC block polling and Alchemy mempool
-  subscriptions before filtering, features, and scoring.
+  subscriptions before filtering, features, and scoring when those flags are
+  enabled.
+- **Protocol routes and demo replay** are registered only when
+  `PROTOCOL_FLOW_ENABLED=true`.
 
 ## End-to-End Detection Workflow
 
@@ -143,11 +147,11 @@ expensive inference is reserved for higher-signal transactions.
 ```mermaid
 flowchart TD
   Tx[Raw Transaction] --> L1[Layer 1: Pre-Filter]
-  L1 -->|safe / dust / known safe path| Skip[Skip]
+  L1 -->|safe / known safe path| Skip[Skip]
   L1 -->|candidate| L2[Layer 2: Feature Engineering]
   L2 --> L3[Layer 3: ML or Heuristic Router]
   L3 -->|low score| Store[Store + Skip]
-  L3 -->|high score| L4[Layer 4: LLM Oracle + Risk Scorer]
+  L3 -->|high score and LAYER4_LLM_ENABLED| L4[Layer 4: LLM Oracle + Risk Scorer]
   L4 --> L5[Layer 5: Alert Orchestrator]
   L5 -->|monitor| Store
   L5 -->|alert| Alert[DB Alert + Telegram]
@@ -168,16 +172,15 @@ Examples:
 - known safe routers,
 - selector whitelist checks,
 - high-value movement threshold checks,
-- dust transactions,
 - routine low-risk calls,
 - protocol-specific safe behavior,
 - blacklisted addresses,
 - known exploit target checks.
 
-The scoring pre-filter uses a real probabilistic Bloom filter for address
-blacklist membership (`pybloom-live`, capacity 100,000, false-positive rate
-0.1%). The backend service blacklist remains a plain Python set for exact
-application-level lookups.
+The scoring pre-filter uses a `pybloom-live` `ScalableBloomFilter` as a fast
+negative precheck for address blacklist membership, then confirms matches
+against an in-memory Python set before escalating. The set remains the exact
+source of truth, so Bloom false positives do not become blacklist matches.
 
 ### Layer 2: Feature Engineering
 
@@ -275,18 +278,18 @@ KYA state remains additive inside the existing `agent_profiles.baseline` JSON:
 - `cusum_state` for changepoint accumulators,
 - `conformal_calib` for conformal score calibration.
 
-Optional Tier 1 signals are disabled by default so the original scoring and
-alert behavior remains unchanged until each flag is enabled.
+KYA signal flags are independently configurable. The master `ENABLE_KYA` gate
+is off by default, while Mahalanobis, changepoint, and conformal signals default
+to enabled once KYA scoring is turned on.
 
 ### Layer 4: Structured Oracle
 
 Layer 4 receives Layer 2 features and Layer 3 signals, then returns a structured
-security assessment.
+security assessment when `LAYER4_LLM_ENABLED=true`.
 
 Layer 4 is intentionally conditional and expensive relative to the earlier
-layers. In the target routing profile, only about 5% of transactions reach the
-oracle path, with an approximate marginal LLM cost around $0.02 per analyzed
-transaction depending on model, token use, and provider pricing.
+layers. It is disabled by default in the agent path and must be explicitly
+enabled for protocol transaction analysis.
 
 Fields:
 
@@ -301,9 +304,9 @@ Fields:
 - `fallback_used`
 - `layer3_score`
 
-Layer 4 is fail-open: if OpenAI is disabled, slow, rate-limited, unavailable, or
-returns malformed JSON, Talosly keeps the transaction alert-worthy instead of
-silently suppressing a possible exploit.
+Layer 4 is fail-open in the protocol transaction path: if OpenAI is disabled,
+slow, rate-limited, unavailable, or returns malformed JSON, Talosly keeps the
+transaction alert-worthy instead of silently suppressing a possible exploit.
 
 Implementation: `scoring/layer4.py`.
 
@@ -394,19 +397,18 @@ python3 scripts/train_layer3.py --synthetic
 
 The frontend provides:
 
-- protocol monitoring,
-- transaction history,
-- alert history,
-- Layer 3 top risk signal breakdowns in transaction details,
-- replay workflow,
+- landing page,
+- agent-wallet registration and monitoring,
+- KYA trust score, risk factor, changepoint, and signal detail views,
 - admin settings,
 - system status.
 
 The backend exposes:
 
 - health checks,
-- protocol CRUD,
-- transaction scoring,
+- agent-wallet registration and scoring,
+- protocol CRUD and protocol-scoped transaction scoring when
+  `PROTOCOL_FLOW_ENABLED=true`,
 - alert listing,
 - alert feedback,
 - waitlist and admin routes.
@@ -445,7 +447,7 @@ flowchart TD
   RailwayAPI --> DB[(Railway PostgreSQL)]
   RailwayWorker --> DB
   RailwayWorker --> Telegram[Telegram Bot]
-  RailwayWorker --> OpenAI[OpenAI API]
+  RailwayWorker -. optional .-> OpenAI[OpenAI API]
   RailwayWorker -. optional .-> RPC[Ethereum RPC]
 ```
 
@@ -501,6 +503,8 @@ ADMIN_SECRET=...
 API_KEY_SECRET_SALT=...
 FRONTEND_URL=https://your-vercel-domain.vercel.app
 PUBLIC_URL=https://talosly-startup-production.up.railway.app
+PROTOCOL_FLOW_ENABLED=false
+LAYER4_LLM_ENABLED=false
 ```
 
 ### Railway Worker
@@ -523,11 +527,12 @@ ENABLE_LAYER3_ML=true
 LAYER3_MODEL_DIR=models
 LAYER3_ESCALATION_THRESHOLD=0.55
 
-LAYER4_ENABLED=true
+LAYER4_ENABLED=false
 LAYER4_MODEL=gpt-4o-mini
 LAYER4_TIMEOUT_SECONDS=8
 LAYER4_MAX_TOKENS=600
 LAYER4_COST_LOG_FILE=logs/layer4_costs.jsonl
+LAYER4_LLM_ENABLED=false
 
 LAYER5_DEDUPE_WINDOW_S=300
 LAYER5_CONFIDENCE_GATE=true
@@ -541,9 +546,9 @@ KYA_POLL_INTERVAL_SECONDS=3600
 KYA_ALERT_THRESHOLD=80
 KYA_SUPPORTED_CHAINS=ethereum,base
 
-KYA_ENABLE_MAHALANOBIS=false
-KYA_ENABLE_CHANGEPOINT=false
-KYA_ENABLE_CONFORMAL=false
+KYA_ENABLE_MAHALANOBIS=true
+KYA_ENABLE_CHANGEPOINT=true
+KYA_ENABLE_CONFORMAL=true
 
 KYA_W_BASE=0.85
 KYA_W_MAHALANOBIS=0.10
@@ -596,9 +601,9 @@ To make agent wallet monitoring live:
 6. Register a controlled wallet from `/agents`, send a test alert, and confirm
    monitoring status becomes `active` after activity is processed.
 
-Enable one optional signal at a time. Start with Mahalanobis, validate that it
-improves real deviations without adding routine false alerts, then consider
-changepoint and conformal gating.
+The KYA signal flags are independent rollback switches. Leave `ENABLE_KYA=false`
+until the agent flow is intentionally live; once enabled, new agents warm up
+signals before they can fire.
 
 ## RPC Safety and Rate Limits
 
@@ -635,7 +640,7 @@ Prerequisites:
 - Node.js
 - Docker and Docker Compose
 - PostgreSQL or Docker Compose
-- OpenAI API key for live LLM scoring
+- OpenAI API key only if optional Layer 4 LLM scoring is enabled
 - Telegram bot token and chat ID for live notifications
 - Alchemy/RPC key only if live polling is enabled
 
@@ -663,7 +668,6 @@ Open locally:
 
 - Frontend: `http://localhost`
 - API health: `http://localhost/api/health`
-- Dashboard: `http://localhost/dashboard`
 - Agent wallets: `http://localhost/agents`
 - Admin: `http://localhost/admin`
 
@@ -675,10 +679,10 @@ Run all tests:
 .venv/bin/python -m pytest
 ```
 
-Current full suite status:
+Current local result from this pass:
 
 ```text
-162 passed
+186 passed, 4 warnings
 ```
 
 Focused checks:
@@ -726,7 +730,7 @@ kya/
   signals/                 Mahalanobis, changepoint, and conformal signals
 
 scoring/
-  filters.py              Layer 1 pre-filter with Bloom-filter blacklist
+  filters.py              Layer 1 pre-filter with Bloom-backed exact blacklist
   features.py              Layer 2 feature extraction
   layer3.py                XGBoost ML/heuristic router
   layer4.py                structured LLM oracle
@@ -746,7 +750,7 @@ scripts/
 
 frontend/
   src/
-    pages/                 dashboard, agents, replay, admin, alerts
+    pages/                 landing, agents, admin, and dormant legacy pages
     components/            UI components
 
 tests/
@@ -806,7 +810,7 @@ they have security headcount.
 The product has a narrow wedge, a clear buyer, and room to compound:
 
 - start with monitored contracts and Telegram alerts,
-- become the dashboard for protocol risk operations,
+- become the dashboard for agent-wallet risk operations,
 - use replay and feedback to improve detection,
 - expand from Ethereum to multi-chain monitoring,
 - package risk intelligence for protocols, funds, auditors, and ecosystems.
