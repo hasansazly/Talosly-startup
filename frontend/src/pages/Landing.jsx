@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { applyWaitlist, getPublicSettings, getStats } from '../api.js';
-import RiskBadge from '../components/RiskBadge.jsx';
 
 function short(value) {
   return value ? `${value.slice(0, 10)}…${value.slice(-6)}` : '—';
@@ -11,6 +10,12 @@ const SAMPLE_ACTIONS = [
   { id: 1, action: 'agent://treasury/rebalance',      value: 0.5,   trust: 94 },
   { id: 2, action: 'agent://ops/new-counterparty',    value: 142.3, trust: 11 },
   { id: 3, action: 'agent://market-maker/quote',      value: 0.01,  trust: 88 },
+];
+
+const HERO_METRICS = [
+  ['14ms', 'median score time'],
+  ['Ed25519', 'signed receipts'],
+  ['0', 'money-path hooks'],
 ];
 
 function TrustPill({ score }) {
@@ -71,7 +76,7 @@ export default function Landing() {
           <div>
             <div className="hero-eyebrow">
               <span className="dot" />
-              Beta · Private Access
+              Agent-wallet security command center
             </div>
             <h1>The integrity layer for <em>agent-initiated</em> financial actions.</h1>
             <p className="hero-copy">
@@ -83,6 +88,14 @@ export default function Landing() {
               <a href="#apply" className="button-link">Request Access</a>
               <Link to="/agents" className="nav-link btn-ghost">Open Agent Dashboard →</Link>
             </div>
+            <div className="hero-proof-strip">
+              {HERO_METRICS.map(([value, label]) => (
+                <div key={label}>
+                  <strong>{value}</strong>
+                  <span>{label}</span>
+                </div>
+              ))}
+            </div>
             <p className="stat-line">
               {stats.transactions_scored
                 ? `${stats.transactions_scored.toLocaleString()} actions scored · ${stats.alerts_fired.toLocaleString()} alerts fired`
@@ -90,16 +103,40 @@ export default function Landing() {
             </p>
           </div>
 
-          <div className="terminal-panel">
-            <div className="terminal-titlebar">
-              <div className="terminal-traffic" aria-hidden="true">
-                <span style={{ background: 'rgba(239,68,68,0.45)' }} />
-                <span style={{ background: 'rgba(245,158,11,0.45)' }} />
-                <span style={{ background: 'rgba(34,197,94,0.45)' }} />
+          <div className="hero-command-deck">
+            <div className="deck-status">
+              <div>
+                <span>Live guardian</span>
+                <strong>Shadow mode active</strong>
               </div>
-              <span className="terminal-title">talosly://live-feed</span>
+              <div className="deck-pulse" aria-hidden="true" />
             </div>
-            <div className="feed-header">Agent action · Value · Trust score</div>
+
+            <div className="deck-score">
+              <span>Trust</span>
+              <strong>94</strong>
+              <small>allow · baseline matched</small>
+            </div>
+
+            <div className="deck-timeline" aria-label="Agent evidence timeline">
+              <div>
+                <span>01</span>
+                <strong>Observed</strong>
+                <small>agent://treasury/rebalance</small>
+              </div>
+              <div>
+                <span>02</span>
+                <strong>Scored</strong>
+                <small>value, cadence, counterparty</small>
+              </div>
+              <div>
+                <span>03</span>
+                <strong>Signed</strong>
+                <small>receipt hash chained</small>
+              </div>
+            </div>
+
+            <div className="feed-header">Agent action · value · trust</div>
             {SAMPLE_ACTIONS.map((row) => (
               <div className="feed-row" key={row.id}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{short(row.action)}</span>
