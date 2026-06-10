@@ -307,10 +307,12 @@ async def _create_kya_tables(conn: asyncpg.Connection) -> None:
             name TEXT NOT NULL,
             principal_ref TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'active',
+            owner_api_key_id INTEGER REFERENCES api_keys(id),
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
     )
+    await conn.execute("ALTER TABLE agents ADD COLUMN IF NOT EXISTS owner_api_key_id INTEGER REFERENCES api_keys(id)")
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS agent_wallets (
@@ -342,6 +344,46 @@ async def _create_kya_tables(conn: asyncpg.Connection) -> None:
             confidence DOUBLE PRECISION,
             computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS action_receipts (
+            id SERIAL PRIMARY KEY,
+            agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+            content_hash TEXT NOT NULL UNIQUE,
+            prev_hash TEXT,
+            signature TEXT NOT NULL,
+            payload JSONB NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    await conn.execute("CREATE INDEX IF NOT EXISTS ix_action_receipts_agent_id ON action_receipts (agent_id, created_at DESC)")
+    await conn.execute(
+        """
+        CREATE OR REPLACE FUNCTION receipts_append_only()
+        RETURNS TRIGGER LANGUAGE plpgsql AS $$
+        BEGIN
+            RAISE EXCEPTION 'action_receipts is append-only: % on row id=% is not permitted', TG_OP, OLD.id;
+        END;
+        $$
+        """
+    )
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'trg_receipts_append_only'
+                  AND tgrelid = 'action_receipts'::regclass
+            ) THEN
+                CREATE TRIGGER trg_receipts_append_only
+                BEFORE UPDATE OR DELETE ON action_receipts
+                FOR EACH ROW EXECUTE FUNCTION receipts_append_only();
+            END IF;
+        END $$;
         """
     )
 

@@ -1,7 +1,7 @@
 import pytest
 
 from kya.alerts import send_agent_score_alert
-from kya.score import AgentTrustScore
+from kya.score import AgentTrustScore, _score_to_decision
 
 
 class FakeTelegramService:
@@ -24,6 +24,7 @@ def make_score(*, trust_score: int, risk_factors: list[str] | None = None) -> Ag
     return AgentTrustScore(
         agent_id=7,
         trust_score=trust_score,
+        decision=_score_to_decision(trust_score),
         risk_factors=risk_factors or [],
         shap_top=[
             {"feature": "pool_drain_ratio", "value": 1.0, "shap": 0.2},

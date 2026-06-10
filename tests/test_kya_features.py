@@ -94,6 +94,8 @@ def test_deviating_event_sets_baseline_deviation_features_and_maps_to_layer3():
         "cadence_z_score": 220.0,
         "off_hours": True,
         "unseen_selector": True,
+        "sequence_anomaly": 0.0,
+        "bocpd_cp_prob": 0.0,
     }
     assert features["kya_new_counterparty"] is True
     assert features["kya_cadence_break"] is True

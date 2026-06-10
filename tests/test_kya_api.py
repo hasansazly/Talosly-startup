@@ -19,6 +19,9 @@ def test_kya_register_agent_requires_api_key():
     assert response.status_code == 403
 
 
+_VALID_WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+
 def test_kya_register_agent_connects_wallet(monkeypatch):
     captured = []
 
@@ -38,7 +41,7 @@ def test_kya_register_agent_connects_wallet(monkeypatch):
             json={
                 "name": "Treasury Agent",
                 "principal_ref": "agent://treasury",
-                "wallet_address": "0xagent",
+                "wallet_address": _VALID_WALLET,
                 "chain": "ethereum",
             },
         )
@@ -51,18 +54,19 @@ def test_kya_register_agent_connects_wallet(monkeypatch):
         "id": 11,
         "agent_id": 7,
         "chain": "ethereum",
-        "address": "0xagent",
+        "address": _VALID_WALLET,
     }
-    assert captured[0]["args"] == ("Treasury Agent", "agent://treasury", "active")
-    assert captured[1]["args"] == (7, "ethereum", "0xagent")
+    assert captured[0]["args"] == ("Treasury Agent", "agent://treasury", "active", 42)
+    assert captured[1]["args"] == (7, "ethereum", _VALID_WALLET)
 
 
 def test_kya_get_agent_score_returns_latest_score(monkeypatch):
     computed_at = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
 
     class FakePool:
-        async def fetchrow(self, _query, agent_id):
-            assert agent_id == 7
+        async def fetchrow(self, query, *args):
+            if "owner_api_key_id" in query:
+                return {"owner_api_key_id": 42}
             return {
                 "id": 99,
                 "agent_id": 7,
@@ -114,19 +118,28 @@ def test_kya_agent_score_is_disabled_by_default():
 
 
 def test_kya_agent_score_scores_supplied_action_when_enabled(monkeypatch):
+    import json as _json
+
     persisted = []
 
     class FakePool:
-        async def execute(self, _query, agent_id, trust_score, risk_factors, shap_top, confidence):
-            persisted.append(
-                {
-                    "agent_id": agent_id,
-                    "trust_score": trust_score,
-                    "risk_factors": risk_factors,
-                    "shap_top": shap_top,
-                    "confidence": confidence,
-                }
-            )
+        async def fetchrow(self, query, *_args):
+            if "owner_api_key_id" in query:
+                return {"owner_api_key_id": 42}
+            return None  # no prior receipt
+
+        async def execute(self, query, *args):
+            if "agent_scores" in query:
+                agent_id, trust_score, risk_factors_json, shap_top_json, confidence = args
+                persisted.append(
+                    {
+                        "agent_id": agent_id,
+                        "trust_score": trust_score,
+                        "risk_factors": _json.loads(risk_factors_json),
+                        "shap_top": _json.loads(shap_top_json),
+                        "confidence": confidence,
+                    }
+                )
             return "INSERT 0 1"
 
     async def fake_get_pool():
@@ -135,6 +148,7 @@ def test_kya_agent_score_scores_supplied_action_when_enabled(monkeypatch):
     app.dependency_overrides[verify_api_key] = lambda: {"id": 42}
     monkeypatch.setattr("kya.api.kya_settings.enable_kya", True)
     monkeypatch.setattr("kya.score.db.get_pool", fake_get_pool)
+    monkeypatch.setattr("kya.api.db.get_pool", fake_get_pool)
     try:
         response = TestClient(app).post(
             "/api/v1/agent-score",

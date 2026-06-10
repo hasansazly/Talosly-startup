@@ -11,16 +11,21 @@ class FakeScorePool:
     def __init__(self) -> None:
         self.rows = []
 
-    async def execute(self, _query, agent_id, trust_score, risk_factors_json, shap_top_json, confidence):
-        self.rows.append(
-            {
-                "agent_id": agent_id,
-                "trust_score": trust_score,
-                "risk_factors": json.loads(risk_factors_json),
-                "shap_top": json.loads(shap_top_json),
-                "confidence": confidence,
-            }
-        )
+    async def fetchrow(self, _query, *_args):
+        return None  # no prior receipts
+
+    async def execute(self, query, *args):
+        if "agent_scores" in query:
+            agent_id, trust_score, risk_factors_json, shap_top_json, confidence = args
+            self.rows.append(
+                {
+                    "agent_id": agent_id,
+                    "trust_score": trust_score,
+                    "risk_factors": json.loads(risk_factors_json),
+                    "shap_top": json.loads(shap_top_json),
+                    "confidence": confidence,
+                }
+            )
         return "INSERT 0 1"
 
 

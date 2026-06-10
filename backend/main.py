@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from backend.config import settings
 from backend.database import get_app_setting, init_db, log_request
+from backend.middleware.auth import verify_admin_secret
 from backend.routers.alerts import router as alerts_router
 from backend.routers.protocols import router as protocols_router
 from backend.routers.settings import admin_router as settings_admin_router
@@ -153,7 +154,7 @@ async def stats():
 
 
 @app.get("/internal/cost-report")
-async def cost_report():
+async def cost_report(_: None = Depends(verify_admin_secret)):
     return CostTracker().report().to_dict()
 
 

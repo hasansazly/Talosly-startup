@@ -147,7 +147,7 @@ def _apply_event(baseline: dict[str, Any], event: AgentEvent) -> dict[str, Any]:
 def _detect_deviation(baseline: dict[str, Any], event: AgentEvent) -> dict[str, Any]:
     event_count = int(baseline.get("event_count") or 0)
     if event_count < MIN_EVENTS_FOR_DEVIATION:
-        return {"is_deviating": False, "score": 0.0, "reasons": ["cold_start"], "sequence_anomaly": 0.0}
+        return {"is_deviating": False, "score": 0.0, "reasons": ["cold_start"], "sequence_anomaly": 0.0, "bocpd_cp_prob": 0.0}
 
     score = 0.0
     reasons: list[str] = []

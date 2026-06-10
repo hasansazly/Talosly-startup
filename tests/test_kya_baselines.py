@@ -72,6 +72,8 @@ async def test_update_baseline_handles_first_ever_event(profile_pool):
         "is_deviating": False,
         "score": 0.0,
         "reasons": ["cold_start"],
+        "sequence_anomaly": 0.0,
+        "bocpd_cp_prob": 0.0,
     }
 
 

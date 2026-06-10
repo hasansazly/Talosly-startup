@@ -17,10 +17,19 @@ KYA_MODEL_DIR = Path("models/kya")
 _default_kya_layer3: Layer3MLEnsemble | None = None
 
 
+def _score_to_decision(trust_score: int) -> str:
+    if trust_score >= 70:
+        return "allow"
+    if trust_score >= 40:
+        return "review"
+    return "block"
+
+
 @dataclass(frozen=True)
 class AgentTrustScore:
     agent_id: int
     trust_score: int
+    decision: str
     risk_factors: list[str]
     shap_top: list[dict[str, Any]]
     confidence: float
@@ -46,15 +55,17 @@ async def score_agent_event(
     shap_top = layer3_result.shap_top
     confidence = _confidence(layer3_result, baseline)
 
+    clamped_score = max(0, min(trust_score, 100))
     score = AgentTrustScore(
         agent_id=agent_id,
-        trust_score=max(0, min(trust_score, 100)),
+        trust_score=clamped_score,
+        decision=_score_to_decision(clamped_score),
         risk_factors=risk_factors,
         shap_top=shap_top,
         confidence=confidence,
         layer3=layer3_result.to_dict(),
     )
-    await _persist_agent_score(score)
+    await _persist_agent_score(score, action=event.tx_hash)
     return score
 
 
@@ -117,7 +128,9 @@ def _confidence(result: EnsembleResult, baseline: dict[str, Any]) -> float:
     return round(max(0.0, min(layer3_confidence * max(baseline_confidence, 0.05), 1.0)), 4)
 
 
-async def _persist_agent_score(score: AgentTrustScore) -> None:
+async def _persist_agent_score(score: AgentTrustScore, action: str = "") -> None:
+    from kya.receipts.chain import build_receipt
+
     pool = await db.get_pool()
     await pool.execute(
         """
@@ -129,6 +142,34 @@ async def _persist_agent_score(score: AgentTrustScore) -> None:
         json.dumps(score.risk_factors),
         json.dumps(score.shap_top),
         score.confidence,
+    )
+
+    prev_row = await pool.fetchrow(
+        "SELECT content_hash FROM action_receipts WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 1",
+        score.agent_id,
+    )
+    prev_hash = prev_row["content_hash"] if prev_row else None
+
+    receipt = build_receipt(
+        agent_id=score.agent_id,
+        action=action,
+        trust_score=score.trust_score,
+        decision=score.decision,
+        risk_factors=score.risk_factors,
+        shap_top=score.shap_top,
+        confidence=score.confidence,
+        prev_hash=prev_hash,
+    )
+    await pool.execute(
+        """
+        INSERT INTO action_receipts (agent_id, content_hash, prev_hash, signature, payload)
+        VALUES ($1, $2, $3, $4, $5::jsonb)
+        """,
+        receipt["agent_id"],
+        receipt["content_hash"],
+        receipt["prev_hash"],
+        receipt["signature"],
+        json.dumps(receipt["payload"]),
     )
 
 
