@@ -3,6 +3,8 @@
 talosly.db
 logs/
 *.log
+.kya_demo_key
+kya_receipts.jsonl
 *.pyc
 __pycache__/
 .pytest_cache/
