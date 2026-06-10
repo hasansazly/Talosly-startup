@@ -1,164 +1,153 @@
 # Talosly
 
-AI security monitoring for DeFi protocols and autonomous agents.
+The integrity and evidence layer for agent-initiated financial actions.
 
-Talosly watches protocol contracts, filters noisy on-chain activity, extracts
-exploit-oriented signals, uses ML and LLM reasoning only when needed, and sends
-actionable alerts before teams miss critical transactions.
+Talosly watches autonomous agent wallets, builds behavioral baselines, scores
+agent actions, detects behavioral breaks, stores signed evidence receipts, and
+alerts operators before agent drift becomes financial damage.
 
-The same engine now also powers **KYA**: Know Your Agent, a default-off product
-surface for real-time trust scoring of autonomous AI agents. KYA monitors an
-agent wallet, learns a rolling behavioral baseline, scores deviations with the
-existing Layer 3 machinery and SHAP explanations, and alerts through the same
-Telegram delivery path.
+The current product surface is agent-wallet monitoring and **KYA**: Know Your
+Agent. The public site at `talosly.com` is a Vercel-hosted React landing page
+and dashboard. The API, database, scoring runtime, and worker live on Railway.
 
-The product is built for early DeFi teams that cannot yet afford a full
-security operations team, but still need practical monitoring, explainable risk
-scores, alert history, replayable evidence, and agent-level operational trust.
+The older DeFi protocol-monitoring and replay pipeline still exists in the
+codebase for analysis, testing, and optional protocol workflows, but Talosly's
+primary positioning is now agent trust, explainable scores, and verifiable
+decision evidence.
 
 ## Product Snapshot
 
-Talosly is a security command center for small and mid-stage DeFi teams.
+Talosly is a security command center for teams deploying agents with financial
+authority.
 
-The wedge is simple: most early protocols monitor risk manually through
-Etherscan, Discord, Telegram, Twitter, and scattered dashboards. Talosly turns
-that into one operational loop:
+The default operating loop is:
 
-1. Add a protocol contract.
-2. Monitor live or replayed chain activity.
-3. Filter obvious noise cheaply.
-4. Score suspicious behavior with layered ML, heuristics, and LLM analysis.
-5. Store transactions, scores, alerts, and feedback.
-6. Notify operators through Telegram.
-7. Improve detection with replay tests and known exploit data.
+1. Register an agent wallet.
+2. Ingest agent actions or wallet activity.
+3. Maintain a rolling behavioral baseline per agent.
+4. Score each action with deterministic KYA logic and Layer 3-compatible
+   signals.
+5. Store trust scores, decisions, receipts, alerts, and feedback.
+6. Emit signed, hash-chained evidence for decisions that need review.
+7. Notify operators through Telegram and expose the state in the React
+   dashboard.
 
-KYA is additive. The existing protocol-monitoring path remains the production
-default and KYA runtime behavior is disabled unless `ENABLE_KYA=true`.
-
-This repo is not a landing page mock. It contains the backend, frontend,
-worker, scoring stack, KYA agent trust package, replay tools, tests, deployment
-config, and operating playbook used to run Talosly.
+The public landing page now presents Talosly as an agent guardian: shadow-mode
+monitoring, trust scoring, behavioral break detection, and signed receipts. It
+is intentionally not a mock-only repo. This repository contains the backend,
+frontend, worker, KYA scoring stack, receipt layer, replay tools, tests,
+deployment config, and operating playbook used to run Talosly.
 
 ## Why This Matters
 
-DeFi security is still mostly reactive for small teams. A protocol can ship with
-audits and still miss the moment a dangerous transaction touches a pool, vault,
-bridge, router, or governance contract.
+Agent-wallet security is still mostly reactive. An autonomous wallet can pass
+human review, then drift from its normal counterparty, selector, value, cadence,
+or time-of-day behavior after a prompt injection, session hijack, or strategy
+break.
 
-The enterprise products in this category are powerful but expensive, heavy, and
-not always built for founders who need fast setup and understandable alerts.
-Talosly starts with a narrower, practical promise:
+Talosly starts with a practical promise:
 
-- monitor the contracts a team cares about,
-- explain why a transaction looks risky,
+- monitor the agents and wallets a team cares about,
+- explain why an action looks risky,
 - alert through channels teams already use,
 - keep cost controlled through staged routing,
-- preserve enough evidence for review and model improvement.
+- preserve signed evidence for review, disputes, audits, and model improvement.
 
 ## Product Surface
 
 Talosly currently includes:
 
-- React dashboard for protocols, transactions, alerts, replay, agents, and
-  admin views.
+- Vercel-hosted React landing page for `talosly.com`.
+- React dashboard for agent monitoring, trust history, alert review, replay,
+  protocol legacy views, and admin settings.
 - FastAPI backend with API key auth, admin auth, rate limiting, and settings.
 - Railway worker for live monitoring and alerting.
 - PostgreSQL persistence for protocols, transactions, alerts, feedback, waitlist,
   settings, API keys, scoring metrics, agents, agent wallets, agent profiles,
-  and agent scores.
+  agent scores, and action receipts.
 - Telegram alert delivery with batching, retries, dedupe, and HTML fallback.
 - Replay scripts for historical exploit-style testing.
 - Known exploit transaction database and loader.
 - Known bad-agent label loader and offline KYA training script.
 - Layered scoring engine from cheap filters to LLM oracle.
 - KYA package for agent wallet ingestion, baselines, feature adaptation,
-  scoring, alerts, API routes, and offline training.
+  scoring, decisions, receipts, alerts, API routes, and offline training.
 - Deployment split for Vercel frontend and Railway backend/worker.
 
 ## System Overview
 
 ```mermaid
 flowchart LR
-  Founder[Protocol Founder / Security Lead] --> UI[Vercel React Dashboard]
-  UI -->|VITE_API_URL| API[Railway FastAPI API]
+  Operator[Agent Operator / Security Lead] --> Site[talosly.com]
+  Site --> Vercel[Vercel Static Frontend]
+  Vercel --> Landing[Landing Page]
+  Vercel --> Dashboard[React Dashboard]
+  Vercel -->|/api/* rewrite| API[Railway FastAPI API]
+
   API --> Auth[API Key + Admin Auth]
-  API --> DB[(PostgreSQL)]
-  API --> Replay[Replay + Admin + KYA Tools]
+  API --> KYA[KYA Agent API]
+  API --> DB[(Railway PostgreSQL)]
 
   Worker[Railway Worker] --> DB
-  Worker -->|Layer 0 optional polling| RPC[Ethereum RPC]
-  Worker -->|Layer 0 optional websocket| WSS[Alchemy WebSocket]
-  Worker --> Pipeline[Detection Pipeline]
-  Worker -->|ENABLE_KYA=true| KYA[KYA Agent Loop]
-  Pipeline --> OpenAI[OpenAI Oracle]
-  Pipeline --> Telegram[Telegram Alerts]
-  KYA --> Telegram
+  Worker -->|optional polling| RPC[Ethereum RPC / Alchemy]
+  Worker --> KYAWorker[KYA Wallet Monitor]
+  KYAWorker --> Score[Agent Trust Scoring]
+  Score --> Decision[Allow / Review / Block]
+  Decision --> Receipts[Signed Hash-Chained Receipts]
+  Decision --> Alerts[Telegram Alerts]
 
-  Data[Known Hacks + Blacklists] --> Pipeline
-  AgentData[Agent Baselines + Scores] --> KYA
-  Models[Layer 3 Models] --> Pipeline
-  Models --> KYA
+  Models[Layer 3 Models + Heuristics] --> Score
+  Data[Known Hacks + Bad-Agent Labels] --> Score
+  DB --> Dashboard
 ```
 
 The architecture is intentionally split:
 
 - **Vercel** serves only the static frontend.
+- **talosly.com** should point to the Vercel frontend project.
 - **Railway backend** serves `/api/*`.
 - **Railway worker** runs background monitoring and alerting.
 - **PostgreSQL** stores operational state.
 - **RPC polling** can be turned off instantly with `ENABLE_RPC_POLLING=false`.
 - **Layer 0 ingestion** covers raw RPC block polling and Alchemy mempool
-  subscriptions before filtering, features, and scoring.
-- **KYA ingestion** is off by default and runs only in the Railway worker when
-  `ENABLE_KYA=true`.
+  subscriptions before filtering, features, and scoring when those flags are
+  enabled.
+- **KYA ingestion** runs only in the Railway worker when `ENABLE_KYA=true`.
+- **Protocol monitoring** remains available as a legacy/optional path; the
+  current product narrative is agent-wallet monitoring.
 
-## End-to-End Detection Workflow
+## Current Agent Trust Workflow
 
 ```mermaid
 sequenceDiagram
-  participant Chain as Ethereum RPC / Replay
-  participant Worker as Talosly Worker
-  participant L0 as Layer 0 Ingestion
-  participant L1 as Layer 1 Pre-Filter
-  participant L2 as Layer 2 Features
-  participant L3 as Layer 3 ML Router
-  participant L4 as Layer 4 Oracle
-  participant L5 as Layer 5 Alerts
+  participant UI as talosly.com / Agents UI
+  participant API as Railway FastAPI
   participant DB as PostgreSQL
+  participant KYA as KYA Scoring
+  participant Signals as Mahalanobis / CUSUM / Conformal
+  participant Receipt as Receipt Layer
   participant TG as Telegram
 
-  Chain->>L0: Raw block or mempool transaction
-  L0->>Worker: Candidate transaction
-  Worker->>DB: Upsert transaction
-  Worker->>L1: Cheap screening
-  alt Low signal
-    L1-->>Worker: Skip
-    Worker->>DB: Store safe state
-  else Suspicious
-    L1->>L2: Extract exploit features
-    L2->>L3: Feature vector
-    alt Below Layer 3 threshold
-      L3-->>Worker: Store and skip
-      Worker->>DB: Persist score context
-    else Escalated
-      L3->>L4: Structured oracle context
-      L4-->>Worker: Verdict, probability, confidence, attack type
-      Worker->>L4: TransactionScorer risk score
-      Worker->>L5: Final alert decision
-      L5->>DB: Save enriched score
-      opt Alert worthy
-        L5->>DB: Insert alert
-        L5->>TG: Send Telegram alert
-        L5->>DB: Mark telegram_sent
-      end
-    end
+  UI->>API: Register agent or submit agent action
+  API->>DB: Verify API key and agent ownership
+  API->>KYA: Agent event + current baseline
+  KYA->>Signals: Evaluate behavioral deviation
+  Signals-->>KYA: Signals fired + signal detail
+  KYA->>KYA: Compute trust score and decision
+  KYA->>DB: Persist agent score
+  KYA->>Receipt: Build canonical decision receipt
+  Receipt->>DB: Append signed hash-chained receipt
+  opt Threshold crossed
+    KYA->>DB: Insert alert
+    KYA->>TG: Send operator alert
   end
+  API-->>UI: Trust score, decision, signals, receipt status
 ```
 
 ## KYA Agent Trust Workflow
 
-KYA is a second product path built on the same Talosly engine. It is designed
-for design partners running autonomous agents that control or propose on-chain
+KYA is the primary product path built on the Talosly scoring engine. It is
+designed for teams running autonomous agents that control or propose financial
 actions.
 
 The current KYA v1 loop:
@@ -169,8 +158,9 @@ The current KYA v1 loop:
 4. Update the rolling `agent_profiles` behavioral baseline.
 5. Build a Layer 3-compatible feature vector with extra KYA deviation signals.
 6. Score the event with the existing Layer 3 ML/heuristic machinery.
-7. Persist trust scores and SHAP top signals in `agent_scores`.
-8. Alert through the existing Telegram service if derived risk crosses
+7. Persist trust scores, decisions, and signal detail in `agent_scores`.
+8. Emit an Ed25519-signed, hash-chained action receipt.
+9. Alert through the existing Telegram service if derived risk crosses
    `KYA_ALERT_THRESHOLD`.
 
 ```mermaid
@@ -179,6 +169,8 @@ sequenceDiagram
   participant Worker as Railway Worker
   participant KYA as KYA Package
   participant L3 as Existing Layer 3
+  participant Decision as Decision Policy
+  participant Receipt as Receipt Layer
   participant DB as PostgreSQL
   participant TG as Telegram
 
@@ -188,7 +180,11 @@ sequenceDiagram
   KYA->>KYA: Baseline deviation features
   KYA->>L3: Layer 3-compatible feature vector
   L3-->>KYA: Score + SHAP top signals
+  KYA->>Decision: Trust score + fired signals
+  Decision-->>KYA: allow / review / block
   KYA->>DB: Insert agent_scores
+  KYA->>Receipt: Build canonical receipt
+  Receipt->>DB: Append action_receipts
   opt Risk above KYA_ALERT_THRESHOLD
     KYA->>TG: Existing smart alert delivery
   end
@@ -446,11 +442,11 @@ trained model.
 
 The frontend provides:
 
-- protocol monitoring,
-- transaction history,
-- alert history,
-- Layer 3 top risk signal breakdowns in transaction details,
+- public landing page for `talosly.com`,
 - agent list, trust score history, and SHAP signal breakdowns,
+- alert history,
+- protocol monitoring and transaction history for the legacy protocol path,
+- Layer 3 top risk signal breakdowns in transaction details,
 - replay workflow,
 - admin settings,
 - system status.
@@ -465,6 +461,7 @@ The backend exposes:
 - KYA agent registration,
 - KYA latest agent score lookup,
 - KYA synchronous agent-action scoring behind `ENABLE_KYA`,
+- receipt persistence and verification support,
 - waitlist and admin routes.
 
 Health check:
@@ -506,14 +503,22 @@ gated by `ENABLE_KYA` and should mature after real monitored-agent data exists.
 
 ```mermaid
 flowchart TD
-  GitHub[GitHub Repo] --> Vercel[Vercel Frontend Deploy]
-  GitHub --> RailwayAPI[Railway API Service]
-  GitHub --> RailwayWorker[Railway Worker Service]
+  Main[GitHub main branch] --> Vercel[Vercel Project]
+  Main --> RailwayAPI[Railway API Service]
+  Main --> RailwayWorker[Railway Worker Service]
+
+  Domain[talosly.com] --> Vercel
+  Vercel --> Build[cd frontend && npm run build]
+  Build --> Static[frontend/dist]
+  Static --> Browser[User Browser]
+  Browser -->|/api/*| VercelRewrite[Vercel Rewrite]
+  VercelRewrite --> RailwayAPI
+
   RailwayAPI --> DB[(Railway PostgreSQL)]
   RailwayWorker --> DB
   RailwayWorker --> Telegram[Telegram Bot]
   RailwayWorker --> OpenAI[OpenAI API]
-  RailwayWorker -. optional .-> RPC[Ethereum RPC]
+  RailwayWorker -. optional .-> RPC[Ethereum RPC / Alchemy]
 ```
 
 ### Runtime Boundaries
@@ -524,21 +529,24 @@ Authoritative application code lives in:
 - `backend/routers/` for API resources,
 - `backend/services/scorer.py` for production transaction scoring,
 - `backend/worker.py` for background monitoring,
-- `kya/` for additive Know Your Agent functionality,
+- `kya/` for Know Your Agent scoring, signals, decisions, and receipts,
 - `frontend/src/` for the React dashboard.
 
 There is intentionally no Vercel Python API runtime. Older `api/` serverless
 shims were removed so Vercel cannot accidentally invoke backend code. Vercel
 serves the static frontend and forwards `/api/*` to Railway.
 
-`talosly_scorer.py` is a legacy standalone scoring experiment kept as reference.
-Runtime code should use `backend.services.scorer.TransactionScorer`.
+`talosly_scorer.py` was a legacy standalone scoring experiment. Runtime code
+should use `backend.services.scorer.TransactionScorer` and the KYA scoring
+package.
 
 ### Vercel Frontend
 
-Vercel should deploy only the React frontend.
+Vercel should deploy only the React frontend. `talosly.com` should be attached
+to this Vercel project, not to Railway.
 
-Required variable:
+The frontend can use relative `/api` calls because `vercel.json` rewrites those
+requests to Railway. If an explicit API URL is configured, use:
 
 ```env
 VITE_API_URL=https://talosly-startup-production.up.railway.app
@@ -554,9 +562,6 @@ Vercel build settings:
 }
 ```
 
-`.vercelignore` excludes backend, ML, model, and runtime files so Vercel does
-not bundle Python dependencies like `numpy` and `scikit-learn`.
-
 `vercel.json` forwards API traffic to Railway before falling back to the React
 SPA:
 
@@ -567,9 +572,11 @@ SPA:
 }
 ```
 
-If Vercel shows `FUNCTION_INVOCATION_FAILED`, it is trying to run a serverless
-function. Confirm the latest `main` commit is deployed, clear the Vercel build
-cache, and verify the old `api/` files are not present in the deployment.
+If `talosly.com` looks old after a push, check the Vercel deployment for the
+latest `main` commit and hard-refresh the browser. If Vercel shows
+`FUNCTION_INVOCATION_FAILED`, it is trying to run a serverless function.
+Confirm the latest `main` commit is deployed, clear the Vercel build cache, and
+verify old `api/` serverless files are not present in the deployment.
 
 ### Railway Backend
 
@@ -587,6 +594,10 @@ FRONTEND_URL=https://your-vercel-domain.vercel.app
 PUBLIC_URL=https://talosly-startup-production.up.railway.app
 ENABLE_KYA=false
 ```
+
+For production, set `FRONTEND_URL` to the Vercel domain or custom domain, for
+example `https://talosly.com`. Keep `ENABLE_KYA=false` until an agent-monitoring
+run is intentionally enabled for a design partner or staging environment.
 
 ### Railway Worker
 
@@ -819,9 +830,12 @@ kya/
   baselines.py             rolling behavioral profiles in agent_profiles
   features.py              KYA deviations mapped to Layer 3 feature shape
   score.py                 trust scoring using existing Layer 3 machinery
+  decision.py              shared allow/review/block decision policy
   alerts.py                KYA alerts through existing Telegram service
   api.py                   KYA FastAPI router
   config.py                default-off KYA settings
+  receipts/                canonical, signed, hash-chained action receipts
+  signals/                 Mahalanobis, changepoint, conformal signal surface
 
 scripts/
   train_layer3.py          offline XGBoost model training
@@ -831,7 +845,7 @@ scripts/
 
 frontend/
   src/
-    pages/                 dashboard, agents, replay, admin, alerts
+    pages/                 landing, agents, dashboard, replay, admin, alerts
     components/            UI components
 
 tests/
@@ -855,9 +869,10 @@ tests/
 - Known exploit DB loads.
 - KYA tables initialize additively.
 - KYA frontend route exists at `/agents`.
-- KYA runtime is default-off behind `ENABLE_KYA=false`.
+- KYA runtime is controlled by `ENABLE_KYA=false` by default.
 - KYA staging can monitor one design partner wallet when `ENABLE_KYA=true`.
 - KYA scoring runs unsupervised unless a trained `models/kya` model exists.
+- KYA receipts can be signed and hash-chained for decision evidence.
 - Blacklist loads.
 - Layer 3 bootstraps and scores.
 - Layer 4 has structured fail-open behavior.
@@ -868,43 +883,50 @@ tests/
 
 Near-term product work:
 
-- Add more verified historical exploit hashes.
-- Run structured replay suites against known incidents.
-- Expand protocol-specific parsers.
-- Add alert detail views for Layer 3/4/5 explanations.
-- Persist Layer 3 and Layer 4 metadata in richer DB columns.
-- Improve wallet and contract reputation signals.
-- Add per-protocol alert policies.
+- Verify the new `talosly.com` landing page on Vercel after every production
+  push.
+- Add richer agent detail views for decision receipts and signal timelines.
 - Run KYA with one design partner wallet in staging.
 - Add a baseline confidence gate if early KYA alerts are noisy.
+- Improve wallet, counterparty, selector, cadence, and value reputation
+  signals.
+- Persist Layer 3 and Layer 4 metadata in richer DB columns.
+- Add more verified historical exploit hashes.
+- Run structured replay suites against known incidents.
+- Expand protocol-specific parsers for the legacy protocol path.
+- Add per-protocol alert policies.
 - Export accumulated `agent_scores` for later supervised KYA training.
 
 Near-term business work:
 
 - Record a concise Loom demo.
-- Onboard a small number of design partners.
-- Validate alert quality with historical and live protocol traffic.
+- Onboard a small number of agent-wallet design partners.
 - Validate KYA alert quality with monitored agent-wallet behavior.
+- Validate alert quality with historical and live protocol traffic where
+  protocol monitoring is enabled.
 - Convert replay evidence into case studies.
-- Package Talosly as a lightweight DeFi security co-pilot.
+- Package Talosly as a lightweight agent-wallet security and evidence layer.
 
 ## Market Positioning
 
-Talosly is infrastructure for crypto-native teams, built around a real
-operational pain: early-stage DeFi protocols need security monitoring before
-they have security headcount.
+Talosly is infrastructure for crypto-native and AI-native teams, built around a
+real operational pain: autonomous agents can move money before teams have a
+clear way to prove intent, detect behavioral drift, and preserve decision
+evidence.
 
 The product has a narrow wedge, a clear buyer, and room to compound:
 
-- start with monitored contracts and Telegram alerts,
-- become the dashboard for protocol risk operations,
+- start with monitored agent wallets and Telegram alerts,
+- become the dashboard for agent trust operations,
+- use signed receipts to create evidence for every important decision,
 - use replay and feedback to improve detection,
-- expand from Ethereum to multi-chain monitoring,
-- package risk intelligence for protocols, funds, auditors, and ecosystems.
+- expand from Ethereum to multi-chain agent-wallet monitoring,
+- package trust intelligence for agent platforms, funds, auditors, and
+  ecosystems.
 
 The core bet is that AI security tools should not be generic chatbots. They
-should be embedded in deterministic pipelines, use structured chain features,
-fail safely, and create evidence operators can act on.
+should be embedded in deterministic pipelines, use structured behavioral and
+chain features, fail safely, and create evidence operators can act on.
 
 ## Operating Principle
 
