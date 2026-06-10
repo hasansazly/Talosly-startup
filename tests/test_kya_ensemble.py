@@ -57,7 +57,9 @@ class FakeScorePool:
 @pytest.fixture(autouse=True)
 def ensemble_config(monkeypatch):
     monkeypatch.delenv("KYA_ENABLE_MAHALANOBIS", raising=False)
+    monkeypatch.setattr(kya_settings, "kya_enable_mahalanobis", False)
     monkeypatch.setattr(kya_settings, "kya_enable_changepoint", False)
+    monkeypatch.setattr(kya_settings, "kya_enable_conformal", False)
     monkeypatch.setattr(kya_settings, "kya_cusum_drift", 0.01)
     monkeypatch.setattr(kya_settings, "kya_cusum_threshold", 0.25)
     monkeypatch.setattr(kya_settings, "kya_w_base", 1.0)
@@ -115,9 +117,16 @@ def baseline() -> dict:
     }
 
 
+def mature_signal_baseline() -> dict:
+    data = baseline()
+    data["event_count"] = 30
+    data["cusum_state"]["count"] = 30
+    return data
+
+
 @pytest.mark.asyncio
 async def test_flags_off_output_is_bit_identical_to_pre_change_score(score_pool):
-    score = await score_agent_event(1, event(), baseline(), layer3=FixedLayer3())
+    score = await score_agent_event(1, event(), mature_signal_baseline(), layer3=FixedLayer3())
 
     assert score.to_dict() == {
         "agent_id": 1,
@@ -133,9 +142,10 @@ async def test_flags_off_output_is_bit_identical_to_pre_change_score(score_pool)
 @pytest.mark.asyncio
 async def test_mahalanobis_spike_raises_risk_and_is_explained(score_pool, monkeypatch):
     monkeypatch.setenv("KYA_ENABLE_MAHALANOBIS", "true")
+    monkeypatch.setattr(kya_settings, "kya_enable_mahalanobis", True)
     monkeypatch.setattr(kya_settings, "kya_w_mahalanobis", 3.0)
 
-    score = await score_agent_event(1, event(), baseline(), layer3=FixedLayer3())
+    score = await score_agent_event(1, event(), mature_signal_baseline(), layer3=FixedLayer3())
 
     assert score.trust_score < 90
     assert "mahalanobis_anomaly" in score.risk_factors
@@ -145,7 +155,7 @@ async def test_mahalanobis_spike_raises_risk_and_is_explained(score_pool, monkey
 @pytest.mark.asyncio
 async def test_changepoint_spike_raises_risk_and_is_explained(score_pool, monkeypatch):
     monkeypatch.setattr(kya_settings, "kya_enable_changepoint", True)
-    shifted = baseline()
+    shifted = mature_signal_baseline()
     shifted["cusum_state"]["s_high"] = 0.24
 
     score = await score_agent_event(1, event(), shifted, layer3=FixedLayer3(isolation_score=0.3))

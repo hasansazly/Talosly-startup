@@ -120,7 +120,8 @@ async def test_strongly_deviating_event_scores_high_risk_with_shap(score_pool):
     assert any(item["shap"] > 0 for item in score.shap_top)
     assert score.layer3["mode"] == "heuristic"
     assert score.decision == "block"
-    assert set(score.signals_fired) >= {"kya_new_counterparty", "kya_unseen_selector", "kya_value_outlier"}
+    assert score.signals_fired == []
+    assert score.signals_detail["changepoint"]["warming_up"] is True
     assert score_pool.rows[-1]["risk_factors"] == score.risk_factors
 
 
@@ -158,3 +159,5 @@ async def test_receipt_uses_same_decision_as_score_response(score_pool, monkeypa
     assert receipt_decision["decision"] == score.decision
     assert receipt_decision["decision_detail"] == score.decision_detail
     assert captured["receipt"]["signals_fired"] == score.signals_fired
+    assert receipt_decision["signals_detail"] == score.signals_detail
+    assert receipt_decision["changepoint"] == score.changepoint

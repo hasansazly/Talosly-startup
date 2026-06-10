@@ -193,4 +193,6 @@ async def score_agent_action(payload: AgentActionRequest, api_key: dict = Depend
         "features": features,
         "decision": decision.decision,
         "decision_detail": decision.to_dict(),
+        "signals_detail": score.signals_detail,
+        "changepoint": score.changepoint,
     }

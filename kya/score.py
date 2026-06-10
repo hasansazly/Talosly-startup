@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,10 @@ from kya.receipts.keys import get_signing_key
 from kya.receipts.receipt import build_receipt
 from kya.receipts.store import append_receipt, previous_receipt_hash
 from kya.signals.changepoint import ChangepointSignal, compute_changepoint_signal
+from kya.signals.conformal import ConformalSignal, compute_conformal_signal
+from kya.signals.guards import covariance_is_usable, is_warming_up
 from kya.signals.mahalanobis import MahalanobisSignal, compute_mahalanobis_signal
+from kya.signals.summary import CHANGEPOINT, CONFORMAL, MAHALANOBIS, SignalResult, SignalSummary, summarize
 from scoring.cost_tracker import CostTracker, CostReport, estimate_cost_usd
 from scoring.layer3 import EnsembleResult, Layer3MLEnsemble, active_mode, reload_models, score_transaction
 
@@ -36,6 +40,8 @@ class AgentTrustScore:
     confidence: float
     layer3: dict[str, Any]
     signals_fired: list[str] = field(default_factory=list)
+    signals_detail: dict[str, Any] = field(default_factory=dict)
+    changepoint: dict[str, Any] = field(default_factory=dict)
     decision: str = ""
     decision_detail: dict[str, Any] = field(default_factory=dict)
 
@@ -61,17 +67,22 @@ async def score_agent_event(
     scorer = layer3 or _get_kya_layer3()
     layer3_result = scorer.score(event.tx_hash, features)
     base_risk_probability = _kya_risk_probability(layer3_result, features)
-    mahalanobis = compute_mahalanobis_signal(features, baseline.get("robust_stats") or {})
+    n_observations = _n_observations(baseline)
+    mahalanobis = _compute_mahalanobis(features, baseline, n_observations)
     changepoint = compute_changepoint_signal(layer3_result.isolation_score, baseline.get("cusum_state"))
-    risk_probability = _fused_risk_probability(base_risk_probability, layer3_result, mahalanobis, changepoint)
+    conformal = compute_conformal_signal(layer3_result.isolation_score, baseline.get("conformal_calib"))
+    signal_summary = _signal_summary(mahalanobis, changepoint, conformal, baseline, n_observations)
+    risk_mahalanobis = mahalanobis if MAHALANOBIS in signal_summary.signals_fired else MahalanobisSignal(0.0, 0.0, "low", "inactive", False)
+    risk_changepoint = changepoint if CHANGEPOINT in signal_summary.signals_fired else ChangepointSignal(0.0, False, None, changepoint.cusum_state, False)
+    risk_probability = _fused_risk_probability(base_risk_probability, layer3_result, risk_mahalanobis, risk_changepoint)
     trust_score = int(round((1.0 - risk_probability) * 100))
     risk_factors = _risk_factors(features, layer3_result)
     shap_top = layer3_result.shap_top
-    if mahalanobis.enabled or changepoint.enabled:
-        risk_factors = _signal_risk_factors(risk_factors, mahalanobis, changepoint)
-        shap_top = _signal_shap_top(shap_top, mahalanobis, changepoint)
+    if signal_summary.signals_fired:
+        risk_factors = _signal_risk_factors(risk_factors, signal_summary)
+        shap_top = _signal_shap_top(shap_top, mahalanobis, changepoint, signal_summary)
     confidence = _confidence(layer3_result, baseline)
-    signals_fired = _signals_fired(features, mahalanobis, changepoint)
+    signals_fired = signal_summary.signals_fired
     score_decision = decide(max(0, min(trust_score, 100)), signals_fired, get_decision_policy())
 
     score = AgentTrustScore(
@@ -82,12 +93,14 @@ async def score_agent_event(
         confidence=confidence,
         layer3=layer3_result.to_dict(),
         signals_fired=signals_fired,
+        signals_detail=signal_summary.detail,
+        changepoint=signal_summary.changepoint,
         decision=score_decision.decision,
         decision_detail=score_decision.to_dict(),
     )
     await _persist_agent_score(score)
     await _emit_action_receipt(score, event, features, mahalanobis, changepoint)
-    if changepoint.enabled:
+    if changepoint.enabled and not score.changepoint.get("warming_up"):
         await _persist_cusum_state(agent_id, changepoint.cusum_state)
     return score
 
@@ -141,6 +154,96 @@ def _fused_risk_probability(
     return min(max(sum(weight * value for weight, value in weighted_signals) / total_weight, 0.0), 1.0)
 
 
+def _n_observations(baseline: dict[str, Any]) -> int:
+    try:
+        return max(int(baseline.get("event_count") or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _compute_mahalanobis(
+    features: dict[str, Any],
+    baseline: dict[str, Any],
+    n_observations: int,
+) -> MahalanobisSignal:
+    if not kya_settings.kya_enable_mahalanobis:
+        return MahalanobisSignal(0.0, 0.0, "low", "disabled", False)
+
+    previous = os.environ.get("KYA_ENABLE_MAHALANOBIS")
+    os.environ["KYA_ENABLE_MAHALANOBIS"] = "true"
+    try:
+        return compute_mahalanobis_signal(features, baseline.get("robust_stats") or {})
+    finally:
+        if previous is None:
+            os.environ.pop("KYA_ENABLE_MAHALANOBIS", None)
+        else:
+            os.environ["KYA_ENABLE_MAHALANOBIS"] = previous
+
+
+def _signal_summary(
+    mahalanobis: MahalanobisSignal,
+    changepoint: ChangepointSignal,
+    conformal: ConformalSignal,
+    baseline: dict[str, Any],
+    n_observations: int,
+) -> SignalSummary:
+    robust_stats = baseline.get("robust_stats") or {}
+    n_features = len(robust_stats.get("feature_names") or [])
+    mahalanobis_warming = (
+        mahalanobis.enabled
+        and (
+            is_warming_up(n_observations)
+            or not covariance_is_usable(n_observations, n_features)
+        )
+    )
+    cusum_count = int((baseline.get("cusum_state") or {}).get("count") or 0)
+    changepoint_warming = changepoint.enabled and (is_warming_up(n_observations) or is_warming_up(cusum_count))
+    conformal_count = len((baseline.get("conformal_calib") or {}).get("scores") or [])
+    conformal_warming = conformal.enabled and (is_warming_up(n_observations) or is_warming_up(conformal_count) or conformal.provisional)
+
+    return summarize(
+        [
+            SignalResult(
+                name=CHANGEPOINT,
+                enabled=changepoint.enabled,
+                fired=changepoint.enabled and changepoint.changepoint_detected and not changepoint_warming,
+                statistic=changepoint.changepoint_score if changepoint.enabled else None,
+                threshold=float(kya_settings.kya_cusum_threshold) if changepoint.enabled else None,
+                warming_up=changepoint_warming,
+                extra={
+                    "direction": changepoint.direction,
+                    "count": changepoint.cusum_state.get("count"),
+                },
+            ),
+            SignalResult(
+                name=MAHALANOBIS,
+                enabled=mahalanobis.enabled,
+                fired=mahalanobis.enabled and mahalanobis.probability >= 0.95 and not mahalanobis_warming,
+                statistic=mahalanobis.distance_squared if mahalanobis.enabled else None,
+                warming_up=mahalanobis_warming,
+                extra={
+                    "probability": mahalanobis.probability,
+                    "confidence": mahalanobis.confidence,
+                    "method": mahalanobis.method,
+                },
+            ),
+            SignalResult(
+                name=CONFORMAL,
+                enabled=conformal.enabled,
+                fired=conformal.enabled and conformal.anomalous and not conformal_warming,
+                statistic=conformal.p_value if conformal.enabled else None,
+                threshold=float(kya_settings.kya_conformal_alpha) if conformal.enabled else None,
+                warming_up=conformal_warming,
+                extra={
+                    "confidence": conformal.confidence,
+                    "provisional": conformal.provisional,
+                    "sample_count": conformal.calibration.get("sample_count"),
+                },
+            ),
+        ]
+    )
+
+
 def _risk_factors(features: dict[str, Any], result: EnsembleResult) -> list[str]:
     factors = []
     if features.get("kya_new_counterparty"):
@@ -162,14 +265,15 @@ def _risk_factors(features: dict[str, Any], result: EnsembleResult) -> list[str]
 
 def _signal_risk_factors(
     factors: list[str],
-    mahalanobis: MahalanobisSignal,
-    changepoint: ChangepointSignal,
+    signal_summary: SignalSummary,
 ) -> list[str]:
     updated = list(factors)
-    if mahalanobis.enabled and "mahalanobis_anomaly" not in updated:
+    if MAHALANOBIS in signal_summary.signals_fired and "mahalanobis_anomaly" not in updated:
         updated.append("mahalanobis_anomaly")
-    if changepoint.enabled and "changepoint" not in updated:
+    if CHANGEPOINT in signal_summary.signals_fired and "changepoint" not in updated:
         updated.append("changepoint")
+    if CONFORMAL in signal_summary.signals_fired and "conformal_anomaly" not in updated:
+        updated.append("conformal_anomaly")
     return updated
 
 
@@ -177,9 +281,10 @@ def _signal_shap_top(
     shap_top: list[dict[str, Any]],
     mahalanobis: MahalanobisSignal,
     changepoint: ChangepointSignal,
+    signal_summary: SignalSummary,
 ) -> list[dict[str, Any]]:
     updated = list(shap_top)
-    if mahalanobis.enabled:
+    if MAHALANOBIS in signal_summary.signals_fired:
         updated.append(
             {
                 "feature": "mahalanobis_anomaly",
@@ -187,7 +292,7 @@ def _signal_shap_top(
                 "shap": round(mahalanobis.probability * _weight(kya_settings.kya_w_mahalanobis), 8),
             }
         )
-    if changepoint.enabled:
+    if CHANGEPOINT in signal_summary.signals_fired:
         updated.append(
             {
                 "feature": "changepoint",
@@ -247,6 +352,8 @@ async def _emit_action_receipt(
                 "confidence": score.confidence,
                 "decision": score.decision,
                 "decision_detail": score.decision_detail,
+                "signals_detail": score.signals_detail,
+                "changepoint": score.changepoint,
             },
             signals_fired=score.signals_fired,
             previous_hash=previous_hash,
@@ -261,29 +368,6 @@ async def _emit_action_receipt(
             failures=RECEIPT_EMIT_FAILURES,
             error=str(exc),
         )
-
-
-def _signals_fired(
-    features: dict[str, Any],
-    mahalanobis: MahalanobisSignal,
-    changepoint: ChangepointSignal,
-) -> list[str]:
-    signals = []
-    if mahalanobis.enabled:
-        signals.append("mahalanobis")
-    if changepoint.enabled:
-        signals.append("changepoint")
-    for key in (
-        "kya_new_counterparty",
-        "kya_unseen_selector",
-        "kya_off_hours",
-        "kya_cadence_break",
-    ):
-        if features.get(key):
-            signals.append(key)
-    if float(features.get("kya_value_z_score") or 0.0) >= 3.0:
-        signals.append("kya_value_outlier")
-    return signals
 
 
 async def _persist_cusum_state(agent_id: int, cusum_state: dict[str, Any]) -> None:

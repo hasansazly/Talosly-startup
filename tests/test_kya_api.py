@@ -200,4 +200,6 @@ def test_kya_agent_score_scores_supplied_action_when_enabled(monkeypatch):
     assert body["decision"] in {"allow", "review", "block"}
     assert body["decision"] == body["decision_detail"]["decision"]
     assert body["decision_detail"]["policy_version"] == "1.0.0"
+    assert "signals_detail" in body
+    assert body["changepoint"]["enabled"] is True
     assert persisted

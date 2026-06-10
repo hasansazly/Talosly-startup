@@ -38,6 +38,7 @@ def make_score(*, trust_score: int, risk_factors: list[str] | None = None) -> Ag
 @pytest.mark.asyncio
 async def test_kya_alert_suppresses_scores_below_threshold(monkeypatch):
     monkeypatch.setattr("kya.alerts.kya_settings.kya_alert_threshold", 80)
+    monkeypatch.setattr("kya.alerts.kya_settings.kya_enable_conformal", False)
     sender = FakeTelegramService()
 
     result = await send_agent_score_alert(
@@ -54,6 +55,7 @@ async def test_kya_alert_suppresses_scores_below_threshold(monkeypatch):
 @pytest.mark.asyncio
 async def test_kya_alert_reuses_smart_telegram_sender_with_human_reasons(monkeypatch):
     monkeypatch.setattr("kya.alerts.kya_settings.kya_alert_threshold", 80)
+    monkeypatch.setattr("kya.alerts.kya_settings.kya_enable_conformal", False)
     sender = FakeTelegramService()
 
     result = await send_agent_score_alert(
