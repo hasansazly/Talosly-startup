@@ -10,6 +10,7 @@ from typing import Any
 
 from backend import database as db
 from kya.ingest import AgentEvent
+from kya.sequence import compute_neg_log_prob, score_transition, state_from_event, update_sequence
 
 MAX_SET_ITEMS = 200
 MIN_EVENTS_FOR_DEVIATION = 3
@@ -44,6 +45,13 @@ def _empty_baseline() -> dict[str, Any]:
             "is_deviating": False,
             "score": 0.0,
             "reasons": [],
+            "sequence_anomaly": 0.0,
+        },
+        "sequence": {
+            "prev_state": None,
+            "transitions": {},
+            "transition_count": 0,
+            "log_prob_stats": {"count": 0, "mean": 0.0, "m2": 0.0, "std": 0.0},
         },
     }
 
@@ -91,11 +99,15 @@ def _normalize_baseline(value: Any) -> dict[str, Any]:
         baseline["value_stats"] = {**_empty_baseline()["value_stats"], **value.get("value_stats", {})}
         baseline["cadence_stats"] = {**_empty_baseline()["cadence_stats"], **value.get("cadence_stats", {})}
         baseline["last_deviation"] = {**_empty_baseline()["last_deviation"], **value.get("last_deviation", {})}
+        baseline["sequence"] = {**_empty_baseline()["sequence"], **value.get("sequence", {})}
     return baseline
 
 
 def _apply_event(baseline: dict[str, Any], event: AgentEvent) -> dict[str, Any]:
     updated = deepcopy(baseline)
+    # Capture pre-event known counterparties so the state label matches _detect_deviation.
+    pre_known_cp = {str(c).lower() for c in updated.get("known_counterparties") or []}
+
     updated["event_count"] = int(updated.get("event_count") or 0) + 1
     updated["confidence"] = _confidence(updated["event_count"])
 
@@ -116,13 +128,19 @@ def _apply_event(baseline: dict[str, Any], event: AgentEvent) -> dict[str, Any]:
         std_key="std",
     )
     updated["cadence_stats"] = _update_cadence(updated.get("cadence_stats") or {}, _event_timestamp(event))
+
+    seq = dict(updated.get("sequence") or _empty_baseline()["sequence"])
+    curr_state = state_from_event(event.selector, event.counterparty, float(event.value or 0.0), pre_known_cp)
+    prev_state = seq.get("prev_state")
+    nlp = compute_neg_log_prob(seq, prev_state or "", curr_state) if prev_state else None
+    updated["sequence"] = update_sequence(seq, prev_state, curr_state, nlp)
     return updated
 
 
 def _detect_deviation(baseline: dict[str, Any], event: AgentEvent) -> dict[str, Any]:
     event_count = int(baseline.get("event_count") or 0)
     if event_count < MIN_EVENTS_FOR_DEVIATION:
-        return {"is_deviating": False, "score": 0.0, "reasons": ["cold_start"]}
+        return {"is_deviating": False, "score": 0.0, "reasons": ["cold_start"], "sequence_anomaly": 0.0}
 
     score = 0.0
     reasons: list[str] = []
@@ -151,8 +169,21 @@ def _detect_deviation(baseline: dict[str, Any], event: AgentEvent) -> dict[str, 
         score += 0.10
         reasons.append("new_active_hour")
 
+    pre_known_cp = {str(c).lower() for c in baseline.get("known_counterparties") or []}
+    seq = baseline.get("sequence") or {}
+    curr_state = state_from_event(event.selector, event.counterparty, float(event.value or 0.0), pre_known_cp)
+    seq_anomaly = score_transition(seq, seq.get("prev_state") or "", curr_state)
+    if seq_anomaly >= 0.5:
+        score += seq_anomaly * 0.40
+        reasons.append("sequence_break")
+
     score = round(min(score, 1.0), 4)
-    return {"is_deviating": score >= 0.5, "score": score, "reasons": reasons}
+    return {
+        "is_deviating": score >= 0.5,
+        "score": score,
+        "reasons": reasons,
+        "sequence_anomaly": round(seq_anomaly, 4),
+    }
 
 
 def _update_running_stats(stats: dict[str, Any], value: float, *, mean_key: str, std_key: str) -> dict[str, Any]:

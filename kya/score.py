@@ -79,6 +79,9 @@ def _kya_risk_probability(result: EnsembleResult, features: dict[str, Any]) -> f
     if features.get("kya_cadence_break"):
         deviation_risk += 0.15
     deviation_risk += min(float(features.get("kya_value_z_score") or 0.0) / 20, 0.25)
+    seq_anomaly = float(features.get("kya_sequence_anomaly") or 0.0)
+    if seq_anomaly >= 0.5:
+        deviation_risk += min(seq_anomaly * 0.30, 0.30)
     return min(max(result.ensemble_score, deviation_risk), 1.0)
 
 
@@ -94,6 +97,8 @@ def _risk_factors(features: dict[str, Any], result: EnsembleResult) -> list[str]
         factors.append("cadence_break")
     if float(features.get("kya_value_z_score") or 0.0) >= 3.0:
         factors.append("value_outlier")
+    if float(features.get("kya_sequence_anomaly") or 0.0) >= 0.5:
+        factors.append("sequence_break")
     for item in result.shap_top:
         feature = item.get("feature")
         if feature and feature not in factors and abs(float(item.get("shap") or 0.0)) > 0:

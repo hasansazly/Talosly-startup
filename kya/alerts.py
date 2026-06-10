@@ -48,6 +48,7 @@ def _human_readable_reasons(score: AgentTrustScore) -> list[str]:
         "off_hours": "activity outside usual active hours",
         "cadence_break": "cadence break versus baseline",
         "value_outlier": "value far above baseline",
+        "sequence_break": "action sequence inconsistent with agent history",
     }
     for factor in score.risk_factors:
         phrase = factor_phrases.get(factor)
@@ -74,6 +75,7 @@ def _humanize_feature(feature: str, item: dict[str, Any]) -> str:
         "tornado_tagged": "mixer-associated wallet signal",
         "calldata_entropy": "unusual calldata entropy",
         "gas_anomaly_zscore": "gas or cadence anomaly",
+        "kya_sequence_anomaly": "trajectory anomaly in action sequence",
     }
     impact = item.get("shap")
     if impact is None:
