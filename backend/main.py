@@ -103,8 +103,9 @@ async def normalize_vercel_paths(request: Request, call_next):
         structured_logger.info("api.request", endpoint=path, method=request.method, status=response.status_code, duration_ms=duration_ms)
     return response
 
-app.include_router(protocols_router, prefix="/api/protocols", tags=["protocols"])
-app.include_router(transactions_router, prefix="/api/transactions", tags=["transactions"])
+if settings.protocol_flow_enabled:
+    app.include_router(protocols_router, prefix="/api/protocols", tags=["protocols"])
+    app.include_router(transactions_router, prefix="/api/transactions", tags=["transactions"])
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(alerts_router, prefix="/api/v1/alerts", tags=["alerts"])
 app.include_router(waitlist_router, prefix="/api/waitlist", tags=["waitlist"])
@@ -157,125 +158,124 @@ async def cost_report():
     return CostTracker().report().to_dict()
 
 
-@app.get("/api/demo/transactions")
-async def demo_transactions(limit: int = 10):
-    try:
-        return await __import__("backend.database", fromlist=["get_recent_transactions"]).get_recent_transactions(None, min(limit, 25))
-    except Exception as exc:
-        structured_logger.warning("api.demo_transactions.fallback", error=str(exc))
-        return []
+if settings.protocol_flow_enabled:
 
+    @app.get("/api/demo/transactions")
+    async def demo_transactions(limit: int = 10):
+        try:
+            return await __import__("backend.database", fromlist=["get_recent_transactions"]).get_recent_transactions(None, min(limit, 25))
+        except Exception as exc:
+            structured_logger.warning("api.demo_transactions.fallback", error=str(exc))
+            return []
 
-def _score_to_dict(result: Any) -> dict[str, Any]:
-    return {
-        "tx_hash": getattr(result, "tx_hash", ""),
-        "risk_score": int(getattr(result, "risk_score", 0)),
-        "risk_summary": getattr(result, "risk_summary", ""),
-        "risk_factors": getattr(result, "risk_factors", []) or [],
-    }
+    def _score_to_dict(result: Any) -> dict[str, Any]:
+        return {
+            "tx_hash": getattr(result, "tx_hash", ""),
+            "risk_score": int(getattr(result, "risk_score", 0)),
+            "risk_summary": getattr(result, "risk_summary", ""),
+            "risk_factors": getattr(result, "risk_factors", []) or [],
+        }
 
+    async def _fetch_replay_transaction(tx_hash: str) -> dict[str, Any]:
+        if not TX_HASH_RE.match(tx_hash):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Invalid Ethereum transaction hash",
+                    "detail": "Use a full 66-character transaction hash: 0x plus 64 hex characters.",
+                    "tx_hash": tx_hash,
+                },
+            )
 
-async def _fetch_replay_transaction(tx_hash: str) -> dict[str, Any]:
-    if not TX_HASH_RE.match(tx_hash):
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "Invalid Ethereum transaction hash",
-                "detail": "Use a full 66-character transaction hash: 0x plus 64 hex characters.",
-                "tx_hash": tx_hash,
-            },
-        )
+        rpc = EthereumRPCClient()
+        try:
+            raw_tx = await rpc._call("eth_getTransactionByHash", [tx_hash])
+            if not raw_tx:
+                raise HTTPException(status_code=404, detail={"error": "Transaction not found", "tx_hash": tx_hash})
+            receipt = await rpc.get_transaction_receipt(tx_hash)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            structured_logger.warning("api.demo_replay.rpc_failed", error=str(exc), tx_hash=tx_hash[:18])
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "RPC fetch failed",
+                    "detail": "Talosly could not fetch live transaction data from the configured Ethereum RPC.",
+                },
+            ) from exc
 
-    rpc = EthereumRPCClient()
-    try:
-        raw_tx = await rpc._call("eth_getTransactionByHash", [tx_hash])
-        if not raw_tx:
-            raise HTTPException(status_code=404, detail={"error": "Transaction not found", "tx_hash": tx_hash})
-        receipt = await rpc.get_transaction_receipt(tx_hash)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        structured_logger.warning("api.demo_replay.rpc_failed", error=str(exc), tx_hash=tx_hash[:18])
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "error": "RPC fetch failed",
-                "detail": "Talosly could not fetch live transaction data from the configured Ethereum RPC.",
-            },
-        ) from exc
+        tx = rpc.parse_transaction(raw_tx, receipt)
+        tx["input_data"] = raw_tx.get("input") or tx.get("input_data") or ""
+        return tx
 
-    tx = rpc.parse_transaction(raw_tx, receipt)
-    tx["input_data"] = raw_tx.get("input") or tx.get("input_data") or ""
-    return tx
+    @app.post("/api/demo/replay")
+    async def demo_replay(payload: DemoReplayRequest):
+        replay_hash = await get_app_setting("euler_replay_hash", EULER_REPLAY_HASH)
+        risk_threshold = await get_app_setting("risk_alert_threshold", settings.risk_alert_threshold)
+        requested_hash = (payload.tx_hash or payload.hash or replay_hash).strip()
+        hash_note = None
+        if requested_hash.lower() == GEMINI_EULER_HASH.lower():
+            requested_hash = replay_hash
+            hash_note = "Gemini's pasted hash differs from the canonical Euler transaction; Talosly fetched the canonical Euler hash from RPC."
 
+        tx = await _fetch_replay_transaction(requested_hash or replay_hash)
+        protocol = {
+            "name": DEFAULT_REPLAY_PROTOCOL["name"] if tx.get("tx_hash", "").lower() == replay_hash.lower() else "Live Replay Target",
+            "address": tx.get("to_address") or DEFAULT_REPLAY_PROTOCOL["address"],
+        }
 
-@app.post("/api/demo/replay")
-async def demo_replay(payload: DemoReplayRequest):
-    replay_hash = await get_app_setting("euler_replay_hash", EULER_REPLAY_HASH)
-    risk_threshold = await get_app_setting("risk_alert_threshold", settings.risk_alert_threshold)
-    requested_hash = (payload.tx_hash or payload.hash or replay_hash).strip()
-    hash_note = None
-    if requested_hash.lower() == GEMINI_EULER_HASH.lower():
-        requested_hash = replay_hash
-        hash_note = "Gemini's pasted hash differs from the canonical Euler transaction; Talosly fetched the canonical Euler hash from RPC."
-
-    tx = await _fetch_replay_transaction(requested_hash or replay_hash)
-    protocol = {
-        "name": DEFAULT_REPLAY_PROTOCOL["name"] if tx.get("tx_hash", "").lower() == replay_hash.lower() else "Live Replay Target",
-        "address": tx.get("to_address") or DEFAULT_REPLAY_PROTOCOL["address"],
-    }
-
-    scorer = TransactionScorer()
-    result = await scorer.score_transaction(tx, protocol)
-    behavioral_tx = {
-        **tx,
-        "from_address": "0x0000000000000000000000000000000000000001",
-    }
-    with_blacklist = BLACKLIST.copy()
-    BLACKLIST.clear()
-    try:
-        behavioral_result = await scorer.score_transaction(behavioral_tx, protocol)
-    finally:
+        scorer = TransactionScorer()
+        result = await scorer.score_transaction(tx, protocol)
+        behavioral_tx = {
+            **tx,
+            "from_address": "0x0000000000000000000000000000000000000001",
+        }
+        with_blacklist = BLACKLIST.copy()
         BLACKLIST.clear()
-        BLACKLIST.update(with_blacklist)
+        try:
+            behavioral_result = await scorer.score_transaction(behavioral_tx, protocol)
+        finally:
+            BLACKLIST.clear()
+            BLACKLIST.update(with_blacklist)
 
-    result_payload = _score_to_dict(result) if result else {
-        "tx_hash": tx["tx_hash"],
-        "risk_score": 0,
-        "risk_summary": "No high-confidence risk signal detected",
-        "risk_factors": [],
-    }
-    behavioral_payload = _score_to_dict(behavioral_result) if behavioral_result else {
-        "tx_hash": tx["tx_hash"],
-        "risk_score": 0,
-        "risk_summary": "Behavioral engine did not cross alert threshold",
-        "risk_factors": [],
-    }
+        result_payload = _score_to_dict(result) if result else {
+            "tx_hash": tx["tx_hash"],
+            "risk_score": 0,
+            "risk_summary": "No high-confidence risk signal detected",
+            "risk_factors": [],
+        }
+        behavioral_payload = _score_to_dict(behavioral_result) if behavioral_result else {
+            "tx_hash": tx["tx_hash"],
+            "risk_score": 0,
+            "risk_summary": "Behavioral engine did not cross alert threshold",
+            "risk_factors": [],
+        }
 
-    return {
-        "protocol": protocol,
-        "transaction": tx,
-        "score": result_payload["risk_score"],
-        "behavior_score": behavioral_payload["risk_score"],
-        "result": result_payload,
-        "behavioral_result": behavioral_payload,
-        "alert": result_payload["risk_score"] >= risk_threshold,
-        "action": "PROTOCOL_PAUSE_READY" if result_payload["risk_score"] >= risk_threshold else "MONITOR",
-        "elapsed_ms": 1840,
-        "hash_note": hash_note,
-        "trace": [
-            "Live RPC data fetched",
-            f"Primary score: {result_payload['risk_score']}/100",
-            f"Behavior-only score: {behavioral_payload['risk_score']}/100",
-            "Weights applied to transaction signals",
-        ],
-        "stages": [
-            "Live RPC transaction fetched",
-            "Weighted scorer executed against the transaction",
-            "Behavior-only pass ran with blacklist disabled",
-            "Critical alert prepared for automatic pause workflow",
-        ],
-    }
+        return {
+            "protocol": protocol,
+            "transaction": tx,
+            "score": result_payload["risk_score"],
+            "behavior_score": behavioral_payload["risk_score"],
+            "result": result_payload,
+            "behavioral_result": behavioral_payload,
+            "alert": result_payload["risk_score"] >= risk_threshold,
+            "action": "PROTOCOL_PAUSE_READY" if result_payload["risk_score"] >= risk_threshold else "MONITOR",
+            "elapsed_ms": 1840,
+            "hash_note": hash_note,
+            "trace": [
+                "Live RPC data fetched",
+                f"Primary score: {result_payload['risk_score']}/100",
+                f"Behavior-only score: {behavioral_payload['risk_score']}/100",
+                "Weights applied to transaction signals",
+            ],
+            "stages": [
+                "Live RPC transaction fetched",
+                "Weighted scorer executed against the transaction",
+                "Behavior-only pass ran with blacklist disabled",
+                "Critical alert prepared for automatic pause workflow",
+            ],
+        }
 
 
 @app.get("/health")

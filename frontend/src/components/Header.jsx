@@ -9,10 +9,7 @@ export default function Header({ online, lastUpdated }) {
       </div>
       <div className="header-right">
         <Link to="/" className="nav-link">Home</Link>
-        <Link to="/dashboard" className="nav-link">Dashboard</Link>
         <Link to="/agents" className="nav-link">Agents</Link>
-        <Link to="/replay" className="nav-link">Replay</Link>
-        <Link to="/alerts" className="nav-link">Alert History</Link>
         <div className="status">
           <span className={`status-dot ${online ? 'online' : ''}`} />
           <span>{online ? 'worker running' : 'offline'}</span>

@@ -61,7 +61,7 @@ def _mock_response(content: str, prompt_tokens: int = 400, completion_tokens: in
 
 @pytest.mark.asyncio
 async def test_layer4_valid_response_returns_oracle_result(tmp_path):
-    oracle = Layer4Oracle(api_key="test-key", cost_log_file=tmp_path / "costs.jsonl")
+    oracle = Layer4Oracle(enabled=True, api_key="test-key", cost_log_file=tmp_path / "costs.jsonl")
     response = _mock_response(json.dumps(GOOD_RESPONSE))
 
     with patch.object(oracle._client.chat.completions, "create", new_callable=AsyncMock, return_value=response):
@@ -100,7 +100,7 @@ async def test_layer4_missing_api_key_fails_open(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_layer4_timeout_fails_open(tmp_path):
-    oracle = Layer4Oracle(api_key="test-key", timeout_seconds=0.001, cost_log_file=tmp_path / "costs.jsonl")
+    oracle = Layer4Oracle(enabled=True, api_key="test-key", timeout_seconds=0.001, cost_log_file=tmp_path / "costs.jsonl")
 
     async def slow_call(*_args, **_kwargs):
         await asyncio.sleep(1)
@@ -115,7 +115,7 @@ async def test_layer4_timeout_fails_open(tmp_path):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("raw", ["not json", "null", '{"exploit_probability": "yes"}'])
 async def test_layer4_malformed_json_fails_open(tmp_path, raw):
-    oracle = Layer4Oracle(api_key="test-key", cost_log_file=tmp_path / "costs.jsonl")
+    oracle = Layer4Oracle(enabled=True, api_key="test-key", cost_log_file=tmp_path / "costs.jsonl")
     response = _mock_response(raw)
 
     with patch.object(oracle._client.chat.completions, "create", new_callable=AsyncMock, return_value=response):
@@ -127,7 +127,7 @@ async def test_layer4_malformed_json_fails_open(tmp_path, raw):
 
 @pytest.mark.asyncio
 async def test_layer4_probability_is_clamped(tmp_path):
-    oracle = Layer4Oracle(api_key="test-key", cost_log_file=tmp_path / "costs.jsonl")
+    oracle = Layer4Oracle(enabled=True, api_key="test-key", cost_log_file=tmp_path / "costs.jsonl")
     response = _mock_response(json.dumps({**GOOD_RESPONSE, "exploit_probability": 2.5}))
 
     with patch.object(oracle._client.chat.completions, "create", new_callable=AsyncMock, return_value=response):
@@ -139,7 +139,7 @@ async def test_layer4_probability_is_clamped(tmp_path):
 @pytest.mark.asyncio
 async def test_layer4_logs_cost(tmp_path):
     cost_log = tmp_path / "layer4_costs.jsonl"
-    oracle = Layer4Oracle(api_key="test-key", cost_log_file=cost_log)
+    oracle = Layer4Oracle(enabled=True, api_key="test-key", cost_log_file=cost_log)
     response = _mock_response(json.dumps(GOOD_RESPONSE), prompt_tokens=500, completion_tokens=200)
 
     with patch.object(oracle._client.chat.completions, "create", new_callable=AsyncMock, return_value=response):

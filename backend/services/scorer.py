@@ -134,7 +134,7 @@ class TransactionScorer:
     """Talosly OpenAI-powered risk scoring service."""
 
     def __init__(self) -> None:
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.layer4_llm_enabled and settings.openai_api_key else None
 
     async def _get_wallet_reputation(self, address: str) -> dict[str, bool]:
         """Checks wallet age and ENS reputation when a Web3 provider is attached."""

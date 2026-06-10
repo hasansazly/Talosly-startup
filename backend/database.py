@@ -47,6 +47,8 @@ DEFAULT_APP_SETTINGS: dict[str, dict[str, Any]] = {
     },
 }
 
+PROTOCOL_FLOW_SETTING_KEYS = {"euler_replay_hash", "marketing_protocols_live"}
+
 
 def _record_to_dict(row: asyncpg.Record | None) -> dict[str, Any] | None:
     return dict(row) if row else None
@@ -278,6 +280,8 @@ async def _create_tables() -> None:
             """
         )
         for key, item in DEFAULT_APP_SETTINGS.items():
+            if not settings.protocol_flow_enabled and key in PROTOCOL_FLOW_SETTING_KEYS:
+                continue
             await conn.execute(
                 """
                 INSERT INTO settings (key, value, value_type, description, is_public)

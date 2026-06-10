@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
@@ -202,4 +203,59 @@ def test_kya_agent_score_scores_supplied_action_when_enabled(monkeypatch):
     assert body["decision_detail"]["policy_version"] == "1.0.0"
     assert "signals_detail" in body
     assert body["changepoint"]["enabled"] is True
+    assert persisted
+
+
+def test_kya_agent_score_does_not_call_llm_client(monkeypatch):
+    persisted = []
+    llm_client = Mock(side_effect=AssertionError("agent scoring must not construct an LLM client"))
+
+    class FakePool:
+        async def execute(self, _query, agent_id, trust_score, risk_factors, shap_top, confidence):
+            persisted.append(
+                {
+                    "agent_id": agent_id,
+                    "trust_score": trust_score,
+                    "risk_factors": risk_factors,
+                    "shap_top": shap_top,
+                    "confidence": confidence,
+                }
+            )
+            return "INSERT 0 1"
+
+    async def fake_get_pool():
+        return FakePool()
+
+    async def fake_get_agent_for_owner(_agent_id, _owner_api_key_id):
+        return {"id": 7}
+
+    app.dependency_overrides[verify_api_key] = lambda: {"id": 42}
+    monkeypatch.setattr("kya.api.kya_settings.enable_kya", True)
+    monkeypatch.setattr("kya.api.db.get_agent_for_owner", fake_get_agent_for_owner)
+    monkeypatch.setattr("kya.score.db.get_pool", fake_get_pool)
+    monkeypatch.setattr("backend.services.scorer.AsyncOpenAI", llm_client)
+    try:
+        response = TestClient(app).post(
+            "/api/v1/agent-score",
+            json={
+                "agent_id": 7,
+                "wallet": "0xagent",
+                "action": "0xnormal-action",
+                "counterparty": "0xknown",
+                "value": 1.0,
+                "selector": "abcdef12",
+                "baseline": {
+                    "event_count": 30,
+                    "confidence": 1.0,
+                    "known_counterparties": ["0xknown"],
+                    "selectors_seen": ["abcdef12"],
+                    "value_stats": {"count": 30, "mean": 1.0, "std": 0.1},
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    llm_client.assert_not_called()
     assert persisted

@@ -223,7 +223,7 @@ class Layer4Oracle:
         max_tokens: int | None = None,
         cost_log_file: str | Path | None = None,
     ) -> None:
-        self.enabled = settings.layer4_enabled if enabled is None else enabled
+        self.enabled = settings.layer4_llm_enabled if enabled is None else enabled
         self.model = model or settings.layer4_model
         self.timeout_seconds = timeout_seconds if timeout_seconds is not None else settings.layer4_timeout_seconds
         self.max_tokens = max_tokens if max_tokens is not None else settings.layer4_max_tokens

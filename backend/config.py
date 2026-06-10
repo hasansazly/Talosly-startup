@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     enable_layer3_ml: bool = True
     layer3_model_dir: str = "models"
     layer3_escalation_threshold: float = 0.55
-    layer4_enabled: bool = True
+    layer4_enabled: bool = False
+    layer4_llm_enabled: bool = False
     layer4_model: str = "gpt-4o-mini"
     layer4_timeout_seconds: float = 8.0
     layer4_max_tokens: int = 600
@@ -51,6 +52,7 @@ class Settings(BaseSettings):
     log_format: str = "pretty"
     app_env: str = "development"
     resend_api_key: str = ""
+    protocol_flow_enabled: bool = False
 
     @computed_field
     @property

@@ -462,7 +462,6 @@ Authoritative application code lives in:
 The files under `api/` are thin Vercel route adapters that import
 `backend.main.app`; they are not separate API implementations.
 
-`talosly_scorer.py` is a legacy standalone scoring experiment kept as reference.
 Runtime code should use `backend.services.scorer.TransactionScorer`.
 
 ### Vercel Frontend

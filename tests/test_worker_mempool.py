@@ -33,6 +33,7 @@ def test_parse_mempool_transaction_normalizes_pending_fields():
 
 @pytest.mark.asyncio
 async def test_mempool_alert_flows_through_layer5(monkeypatch):
+    monkeypatch.setattr(worker_module.settings, "layer4_llm_enabled", True)
     worker = TaloslyWorker.__new__(TaloslyWorker)
     protocol = {"id": 7, "name": "Aave", "address": "0xprotocol"}
     worker.mempool_protocols = {"0xprotocol": protocol}

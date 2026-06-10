@@ -18,6 +18,7 @@ async def test_kya_worker_loop_is_skipped_when_flag_off(monkeypatch):
 
     monkeypatch.delenv("ENABLE_KYA", raising=False)
     monkeypatch.setattr(worker_module.kya_settings, "enable_kya", False)
+    monkeypatch.setattr(worker_module.settings, "protocol_flow_enabled", True)
     monkeypatch.setattr(worker_module.settings, "enable_mempool_subscriber", False)
     monkeypatch.setattr(worker_module.settings, "enable_rpc_polling", False)
     monkeypatch.setattr(worker_module.db, "init_db", init_db)

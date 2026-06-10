@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { applyWaitlist, getDemoTransactions, getPublicSettings, getStats } from '../api.js';
+import { applyWaitlist, getPublicSettings, getStats } from '../api.js';
 import RiskBadge from '../components/RiskBadge.jsx';
 
 function short(value) {
@@ -8,25 +8,19 @@ function short(value) {
 }
 
 export default function Landing() {
-  const [stats, setStats] = useState({ protocols_monitored: 0, transactions_scored: 0, alerts_fired: 0 });
+  const [stats, setStats] = useState({ transactions_scored: 0, alerts_fired: 0 });
   const [appSettings, setAppSettings] = useState({
     risk_alert_threshold: 70,
     marketing_transactions_scored: 11868,
     marketing_alerts_fired: 10832,
-    marketing_protocols_live: 5,
     marketing_alert_latency: '<3s',
   });
-  const [feed, setFeed] = useState([]);
   const [form, setForm] = useState({ name: '', email: '', project: '', twitter: '', goal: '' });
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     getStats().then(setStats).catch(() => {});
     getPublicSettings().then(setAppSettings).catch(() => {});
-    const loadFeed = () => getDemoTransactions().then(setFeed).catch(() => {});
-    loadFeed();
-    const id = setInterval(loadFeed, 10000);
-    return () => clearInterval(id);
   }, []);
 
   async function submit(event) {
@@ -43,7 +37,11 @@ export default function Landing() {
 
   const marketingTransactions = Number(appSettings.marketing_transactions_scored || 0).toLocaleString();
   const marketingAlerts = Number(appSettings.marketing_alerts_fired || 0).toLocaleString();
-  const marketingProtocols = Number(appSettings.marketing_protocols_live || 0).toLocaleString();
+  const sampleActions = [
+    { id: 1, tx_hash: 'agent://treasury/rebalance', value_eth: 0.5, risk_score: 12 },
+    { id: 2, tx_hash: 'agent://ops/new-counterparty', value_eth: 142.3, risk_score: 89 },
+    { id: 3, tx_hash: 'agent://market-maker/quote', value_eth: 0.01, risk_score: 8 },
+  ];
 
   return (
     <main className="landing">
@@ -57,7 +55,7 @@ export default function Landing() {
         <nav className="landing-nav">
           <span className="wordmark">TALOSLY</span>
           <div>
-            <Link to="/dashboard" className="nav-link">View Demo</Link>
+            <Link to="/agents" className="nav-link">Open Agents</Link>
             <a href="#apply" className="nav-link primary-link">Apply</a>
           </div>
         </nav>
@@ -73,15 +71,15 @@ export default function Landing() {
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#f87171', display: 'inline-block', animation: 'pulse 1.5s ease-in-out infinite' }}></span>
               Beta · Live Now
             </div>
-            <p className="panel-label">DeFi Security, Automated.</p>
-            <h1>AI monitors your protocol <em>24/7.</em></h1>
-            <p className="hero-copy">Scores every transaction 0-100. Fires alerts before the hack completes.</p>
+            <p className="panel-label">Know-Your-Agent, Automated.</p>
+            <h1>AI monitors your agents <em>24/7.</em></h1>
+            <p className="hero-copy">Scores every agent action 0-100. Flags behavioral breaks before damage spreads.</p>
             <div className="hero-actions">
               <a href="#apply" className="button-link">Apply for Beta Access</a>
-              <Link to="/dashboard" className="nav-link">View Demo {'->'}</Link>
+              <Link to="/agents" className="nav-link">Open Agents {'->'}</Link>
             </div>
             <p className="stat-line">
-              Monitoring {stats.protocols_monitored} protocols · {stats.transactions_scored} transactions scored · {stats.alerts_fired} alerts fired
+              {stats.transactions_scored} actions scored · {stats.alerts_fired} alerts fired
             </p>
           </div>
           <div className="terminal-panel">
@@ -92,11 +90,7 @@ export default function Landing() {
               <span style={{ fontFamily: "'Space Mono',monospace", fontSize: '10px', color: '#64748b', marginLeft: '8px', letterSpacing: '0.06em' }}>talosly://live-feed</span>
             </div>
             <div className="terminal-title">LIVE FEED</div>
-            {(feed.length ? feed : [
-              { id: 1, tx_hash: '0xabc0000000000000000000000000000000000def', value_eth: 0.5, risk_score: 12 },
-              { id: 2, tx_hash: '0x1230000000000000000000000000000000000456', value_eth: 142.3, risk_score: 89 },
-              { id: 3, tx_hash: '0xdef0000000000000000000000000000000000789', value_eth: 0.01, risk_score: 8 }
-            ]).slice(0, 10).map((tx) => (
+            {sampleActions.map((tx) => (
               <div className="feed-row" key={tx.id || tx.tx_hash}>
                 <span>{short(tx.tx_hash)}</span>
                 <span>{Number(tx.value_eth || 0).toFixed(3)} ETH</span>
@@ -153,8 +147,8 @@ export default function Landing() {
             <div style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: '8px' }}>Alerts Fired</div>
           </div>
           <div>
-            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", lineHeight: 1 }}>{marketingProtocols}</div>
-            <div style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: '8px' }}>Protocols Live</div>
+            <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", lineHeight: 1 }}>KYA</div>
+            <div style={{ fontFamily: "'Space Mono',monospace", fontSize: '11px', color: '#64748b', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: '8px' }}>Agent Flow</div>
           </div>
           <div>
             <div style={{ fontSize: '56px', fontWeight: 800, fontFamily: "'Syne',sans-serif", color: '#34d399', lineHeight: 1 }}>{appSettings.marketing_alert_latency}</div>
@@ -184,7 +178,7 @@ export default function Landing() {
         <form className="beta-form" onSubmit={submit}>
           <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <input placeholder="Email" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <input placeholder="Protocol / Project" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} />
+          <input placeholder="Agent / Project" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} />
           <input placeholder="Twitter/X handle" value={form.twitter} onChange={(e) => setForm({ ...form, twitter: e.target.value })} />
           <textarea placeholder="What are you trying to protect?" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} />
           <button>Submit Application</button>

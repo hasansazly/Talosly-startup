@@ -53,8 +53,7 @@ def test_hybrid_engine_returns_oracle_schema_for_spike(monkeypatch):
 
     assert sorted(payload.keys())[:3] == ["action", "confidence", "gpt_consulted"]
     assert isinstance(payload["interval"], list)
-    assert payload["gpt_consulted"] is True
-    assert "warning" in payload
+    assert payload["gpt_consulted"] is False
 
 
 def test_bayesian_risk_and_action_boundaries():

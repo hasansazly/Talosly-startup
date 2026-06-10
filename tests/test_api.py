@@ -10,14 +10,16 @@ def test_health_returns_talosly_status():
     assert response.json() == {"status": "ok", "service": "Talosly"}
 
 
-def test_protected_protocols_require_api_key():
+def test_protocol_routes_are_disabled_by_default():
     response = TestClient(app).get("/api/protocols")
-    assert response.status_code == 403
+
+    assert response.status_code == 404
 
 
-def test_invalid_protocol_body_still_validates_on_model():
+def test_protocol_create_route_is_disabled_by_default():
     response = TestClient(app).post("/api/protocols", json={"name": "Bad", "address": "0x123"})
-    assert response.status_code in {403, 422}
+
+    assert response.status_code == 404
 
 
 def test_admin_endpoint_requires_secret():
@@ -114,66 +116,6 @@ def test_alert_feedback_returns_404_for_missing_alert(monkeypatch):
     assert response.status_code == 404
 
 
-def test_protocol_list_is_scoped_to_api_key(monkeypatch):
-    captured = {}
-
-    async def fake_get_all_protocols(active_only=False, owner_api_key_id=None):
-        captured["active_only"] = active_only
-        captured["owner_api_key_id"] = owner_api_key_id
-        return []
-
-    app.dependency_overrides[verify_api_key] = lambda: {"id": 7}
-    monkeypatch.setattr("backend.database.get_all_protocols", fake_get_all_protocols)
-    try:
-        response = TestClient(app).get("/api/protocols")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 200
-    assert captured == {"active_only": False, "owner_api_key_id": 7}
-
-
-def test_protocol_create_assigns_owner_api_key(monkeypatch):
-    captured = {}
-
-    async def fake_init_db():
-        return None
-
-    async def fake_get_protocol_by_address(_address):
-        return None
-
-    async def fake_insert_protocol(name, address, owner_api_key_id=None):
-        captured.update({"name": name, "address": address, "owner_api_key_id": owner_api_key_id})
-        return 42
-
-    async def fake_get_protocol(_protocol_id):
-        return {
-            "id": 42,
-            "name": captured["name"],
-            "address": captured["address"],
-            "chain": "ethereum",
-            "is_active": True,
-            "created_at": "2026-05-30T00:00:00Z",
-            "last_seen_block": None,
-        }
-
-    app.dependency_overrides[verify_api_key] = lambda: {"id": 9}
-    monkeypatch.setattr("backend.database.init_db", fake_init_db)
-    monkeypatch.setattr("backend.database.get_protocol_by_address", fake_get_protocol_by_address)
-    monkeypatch.setattr("backend.database.insert_protocol", fake_insert_protocol)
-    monkeypatch.setattr("backend.database.get_protocol", fake_get_protocol)
-    try:
-        response = TestClient(app).post(
-            "/api/protocols",
-            json={"name": "Owner Protocol", "address": "0x0000000000000000000000000000000000000001"},
-        )
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 201
-    assert captured["owner_api_key_id"] == 9
-
-
 def test_alert_list_is_scoped_to_api_key(monkeypatch):
     captured = {}
 
@@ -192,15 +134,7 @@ def test_alert_list_is_scoped_to_api_key(monkeypatch):
     assert captured == {"limit": 25, "owner_api_key_id": 11}
 
 
-def test_transactions_reject_protocol_from_other_owner(monkeypatch):
-    async def fake_get_protocol_for_owner(_protocol_id, _owner_api_key_id):
-        return None
-
-    app.dependency_overrides[verify_api_key] = lambda: {"id": 13}
-    monkeypatch.setattr("backend.database.get_protocol_for_owner", fake_get_protocol_for_owner)
-    try:
-        response = TestClient(app).get("/api/transactions?protocol_id=99")
-    finally:
-        app.dependency_overrides.clear()
+def test_transactions_route_is_disabled_by_default():
+    response = TestClient(app).get("/api/transactions?protocol_id=99")
 
     assert response.status_code == 404

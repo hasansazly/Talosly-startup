@@ -32,7 +32,7 @@ class TaloslyWorker:
         self.pre_filter = PreFilterManager()
         self.layer2 = Layer2FeatureEngineering()
         self.layer3 = Layer3MLEnsemble()
-        self.layer4 = get_oracle()
+        self.layer4 = get_oracle() if settings.layer4_llm_enabled else None
         self.layer5 = AlertOrchestrator(db, self.telegram)
         self.running = True
         self.last_seen_blocks: dict[str, int] = {}
@@ -61,14 +61,22 @@ class TaloslyWorker:
         )
         try:
             worker_tasks = []
-            if settings.enable_mempool_subscriber and settings.ethereum_ws_url:
-                worker_tasks.extend([self._poll_loop(), self._run_mempool_subscriber()])
+            if settings.protocol_flow_enabled:
+                if settings.enable_mempool_subscriber and settings.ethereum_ws_url:
+                    worker_tasks.extend([self._poll_loop(), self._run_mempool_subscriber()])
+                else:
+                    if settings.enable_mempool_subscriber:
+                        logger.warning("mempool.disabled", reason="missing websocket url")
+                    worker_tasks.append(self._poll_loop())
             else:
-                if settings.enable_mempool_subscriber:
-                    logger.warning("mempool.disabled", reason="missing websocket url")
-                worker_tasks.append(self._poll_loop())
+                logger.info("worker.protocol_flow.disabled")
             if kya_settings.enable_kya:
                 worker_tasks.append(self._run_kya_loop())
+            if not worker_tasks:
+                logger.info("worker.idle", reason="protocol_flow_and_kya_disabled")
+                while self.running:
+                    await asyncio.sleep(max(settings.poll_interval_seconds, 60))
+                return
             if len(worker_tasks) == 1:
                 await worker_tasks[0]
             else:
@@ -270,15 +278,17 @@ class TaloslyWorker:
             )
             return
 
-        layer4_result = await self.layer4.analyze(tx_hash, layer2_features, layer3_result)
-        if not layer4_result.should_alert:
-            logger.info(
-                "mempool.transaction.layer4.skip",
-                protocol=protocol.get("name"),
-                tx_hash=tx_hash[:18],
-                layer4_result=layer4_result.to_dict(),
-            )
-            return
+        layer4_result = None
+        if settings.layer4_llm_enabled and self.layer4 is not None:
+            layer4_result = await self.layer4.analyze(tx_hash, layer2_features, layer3_result)
+            if not layer4_result.should_alert:
+                logger.info(
+                    "mempool.transaction.layer4.skip",
+                    protocol=protocol.get("name"),
+                    tx_hash=tx_hash[:18],
+                    layer4_result=layer4_result.to_dict(),
+                )
+                return
 
         tx_id, is_new = await db.upsert_transaction(protocol["id"], parsed)
         if not is_new:
@@ -296,7 +306,7 @@ class TaloslyWorker:
             to_address=to_address,
             layer2_features=layer2_features,
             layer3_result=layer3_result,
-            layer4_result=layer4_result.to_dict(),
+            layer4_result=layer4_result.to_dict() if layer4_result is not None else None,
         )
         score_result = await self.scorer.score_transaction(parsed, protocol)
         layer5_result = await self.layer5.process(
@@ -410,34 +420,36 @@ class TaloslyWorker:
                 )
                 continue
 
-            layer4_result = await self.layer4.analyze(
-                parsed["tx_hash"],
-                parsed["layer2_features"],
-                parsed["layer3_result"],
-            )
-            parsed["layer4_result"] = layer4_result.to_dict()
-            logger.info(
-                "transaction.layer4.result",
-                protocol=protocol["name"],
-                tx_hash=parsed["tx_hash"][:18],
-                verdict=layer4_result.verdict,
-                probability=layer4_result.exploit_probability,
-                confidence=layer4_result.confidence,
-                action=layer4_result.recommended_action,
-                attack_type=layer4_result.attack_type,
-                cost_usd=layer4_result.cost_usd,
-                fallback=layer4_result.fallback_used,
-                layer3_score=layer4_result.layer3_score,
-            )
-            if not layer4_result.should_alert:
+            layer4_result = None
+            if settings.layer4_llm_enabled and self.layer4 is not None:
+                layer4_result = await self.layer4.analyze(
+                    parsed["tx_hash"],
+                    parsed["layer2_features"],
+                    parsed["layer3_result"],
+                )
+                parsed["layer4_result"] = layer4_result.to_dict()
                 logger.info(
-                    "transaction.layer4.skip",
+                    "transaction.layer4.result",
                     protocol=protocol["name"],
                     tx_hash=parsed["tx_hash"][:18],
                     verdict=layer4_result.verdict,
                     probability=layer4_result.exploit_probability,
+                    confidence=layer4_result.confidence,
+                    action=layer4_result.recommended_action,
+                    attack_type=layer4_result.attack_type,
+                    cost_usd=layer4_result.cost_usd,
+                    fallback=layer4_result.fallback_used,
+                    layer3_score=layer4_result.layer3_score,
                 )
-                continue
+                if not layer4_result.should_alert:
+                    logger.info(
+                        "transaction.layer4.skip",
+                        protocol=protocol["name"],
+                        tx_hash=parsed["tx_hash"][:18],
+                        verdict=layer4_result.verdict,
+                        probability=layer4_result.exploit_probability,
+                    )
+                    continue
 
             logger.info("transaction.fetched", protocol=protocol["name"], tx_hash=parsed["tx_hash"][:18], block_number=parsed.get("block_number"))
             score_result = await self.scorer.score_transaction(parsed, protocol)

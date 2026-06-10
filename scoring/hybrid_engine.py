@@ -88,7 +88,10 @@ class HybridScoringEngine:
             )
 
         interval_width = max(0, signals.interval[1] - signals.interval[0])
-        should_call_gpt = signals.composite_score > self.ml_gate_threshold or interval_width > self.confidence_gate
+        should_call_gpt = (
+            _env_bool("LAYER4_LLM_ENABLED", False)
+            and (signals.composite_score > self.ml_gate_threshold or interval_width > self.confidence_gate)
+        )
 
         gpt_reasoning: str | None = None
         final_score = signals.composite_score
@@ -197,6 +200,18 @@ class HybridScoringEngine:
     ) -> OracleRiskResponse:
         """Fall back to GPT-only if the ML pipeline cannot produce signals."""
         fallback_signals = ModelSignals(0.0, 0.0, 0.0, 0.0, 50, [40, 60])
+        if not _env_bool("LAYER4_LLM_ENABLED", False):
+            return OracleRiskResponse(
+                score=50,
+                confidence=0.0,
+                interval=[40, 60],
+                p_exploit=0.0,
+                signals={"anomaly": 0.0, "drain_velocity": 0.0, "bayesian_deviation": 0.0},
+                gpt_consulted=False,
+                gpt_reasoning=None,
+                action=action_for_score(50),
+                warning=warning,
+            )
         try:
             gpt_score, gpt_reasoning, usage = self._call_gpt(
                 signals=fallback_signals,
@@ -541,3 +556,10 @@ def _env_int(name: str, default: int) -> int:
         return int(os.environ.get(name, default))
     except ValueError:
         return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
