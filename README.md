@@ -70,17 +70,19 @@ flowchart LR
   UI -->|VITE_API_URL| API[Railway FastAPI API]
   API --> Auth[API Key + Admin Auth]
   API --> DB[(PostgreSQL)]
-  API --> Replay[Optional Replay + Admin Tools]
+  API --> KYA[KYA Agent API]
 
   Worker[Railway Worker] --> DB
   Worker -->|Layer 0 optional polling| RPC[Ethereum RPC]
   Worker -->|Layer 0 optional websocket| WSS[Alchemy WebSocket]
-  Worker --> Pipeline[Detection Pipeline]
-  Pipeline -. optional .-> OpenAI[OpenAI Oracle]
-  Pipeline --> Telegram[Telegram Alerts]
+  Worker --> KYAWorker[KYA Wallet Monitor]
+  KYAWorker --> Score[Agent Trust Scoring]
+  Score --> Receipts[Signed Receipts]
+  Score --> Telegram[Telegram Alerts]
 
-  Data[Known Hacks + Blacklists] --> Pipeline
-  Models[Layer 3 Models] --> Pipeline
+  Data[Known Hacks + Blacklists] --> Legacy[Legacy Protocol Scoring]
+  Models[Layer 3 Models] --> Score
+  Legacy -. PROTOCOL_FLOW_ENABLED .-> OpenAI[Layer 4 OpenAI Oracle]
 ```
 
 The architecture is intentionally split:
@@ -96,66 +98,87 @@ The architecture is intentionally split:
 - **Protocol routes and demo replay** are registered only when
   `PROTOCOL_FLOW_ENABLED=true`.
 
-## End-to-End Detection Workflow
+## Current Agent Scoring Workflow
 
 ```mermaid
 sequenceDiagram
-  participant Chain as Ethereum RPC / Replay
-  participant Worker as Talosly Worker
-  participant L0 as Layer 0 Ingestion
-  participant L1 as Layer 1 Pre-Filter
-  participant L2 as Layer 2 Features
-  participant L3 as Layer 3 ML Router
-  participant L4 as Layer 4 Oracle
-  participant L5 as Layer 5 Alerts
+  participant UI as /agents UI or API Client
+  participant API as KYA API
+  participant Score as score_agent_event
+  participant Model as Layer 3 Heuristic/ML Model
+  participant Signals as Mahalanobis/CUSUM/Conformal
+  participant Policy as Shared Decision Policy
+  participant Receipt as Receipt Layer
   participant DB as PostgreSQL
   participant TG as Telegram
 
-  Chain->>L0: Raw block or mempool transaction
-  L0->>Worker: Candidate transaction
-  Worker->>DB: Upsert transaction
-  Worker->>L1: Cheap screening
-  alt Low signal
-    L1-->>Worker: Skip
-    Worker->>DB: Store safe state
-  else Suspicious
-    L1->>L2: Extract exploit features
-    L2->>L3: Feature vector
-    alt Below Layer 3 threshold
-      L3-->>Worker: Store and skip
-      Worker->>DB: Persist score context
-    else Escalated
-      L3->>L4: Structured oracle context
-      L4-->>Worker: Verdict, probability, confidence, attack type
-      Worker->>L4: TransactionScorer risk score
-      Worker->>L5: Final alert decision
-      L5->>DB: Save enriched score
-      opt Alert worthy
-        L5->>DB: Insert alert
-        L5->>TG: Send Telegram alert
-        L5->>DB: Mark telegram_sent
-      end
-    end
+  UI->>API: POST /api/v1/agent-score
+  API->>DB: Verify API key owns agent
+  API->>Score: Agent action + baseline
+  Score->>Model: Feature vector
+  Model-->>Score: ensemble_score, confidence, shap_top
+  Score->>Signals: Evaluate enabled signals with warm-up guards
+  Signals-->>Score: signals_fired, signals_detail, changepoint
+  Score->>Policy: decide(trust_score, signals_fired)
+  Policy-->>Score: allow / review / block + reasons
+  Score->>DB: Persist agent_scores
+  Score->>Receipt: Build hash-chained signed receipt
+  Receipt->>DB: Append action_receipts
+  Score-->>API: trust_score + decision + signal detail
+  opt Alert threshold crossed
+    Score->>TG: Send KYA alert
   end
+  API-->>UI: Score response
 ```
 
-## Scoring Stack
+## Current Model
 
-Talosly is built as a staged pipeline so cheap decisions happen first and
-expensive inference is reserved for higher-signal transactions.
+The active model is the KYA agent trust scorer. It converts an agent action into
+behavioral features, scores the action with the existing Layer 3 heuristic/ML
+router, overlays differentiated signals, and records the exact decision in both
+the API response and the signed receipt.
 
 ```mermaid
 flowchart TD
-  Tx[Raw Transaction] --> L1[Layer 1: Pre-Filter]
-  L1 -->|safe / known safe path| Skip[Skip]
-  L1 -->|candidate| L2[Layer 2: Feature Engineering]
-  L2 --> L3[Layer 3: ML or Heuristic Router]
-  L3 -->|low score| Store[Store + Skip]
-  L3 -->|high score and LAYER4_LLM_ENABLED| L4[Layer 4: LLM Oracle + Risk Scorer]
-  L4 --> L5[Layer 5: Alert Orchestrator]
-  L5 -->|monitor| Store
-  L5 -->|alert| Alert[DB Alert + Telegram]
+  Action[Agent Action] --> Features[KYA Feature Vector]
+  Baseline[Agent Baseline JSON] --> Features
+  Features --> Layer3[Layer 3 Heuristic/ML Router]
+  Layer3 --> BaseRisk[Base Risk Probability]
+  Features --> Signals[Signal Surface]
+  Baseline --> Signals
+  Signals --> Fired[signals_fired + signals_detail + changepoint]
+  BaseRisk --> Trust[trust_score 0-100]
+  Fired --> Trust
+  Trust --> Decision[Shared Decision Policy]
+  Fired --> Decision
+  Decision --> APIResponse[API decision + decision_detail]
+  Decision --> Receipt[Signed Hash-Chained Receipt]
+  Fired --> APIResponse
+  Fired --> Receipt
+  Trust --> AgentScores[(agent_scores)]
+  Receipt --> ActionReceipts[(action_receipts)]
 ```
+
+Current KYA model components:
+
+- feature vector: counterparty, selector, value, cadence, off-hours, and Layer 3
+  compatible transaction features,
+- baseline state: rolling robust stats, CUSUM state, conformal calibration, and
+  event count,
+- Layer 3 router: heuristic fallback or Isolation Forest + XGBoost + Bayesian
+  updater + Platt calibration when model files are enabled and valid,
+- signal surface: Mahalanobis, CUSUM changepoint, and conformal anomaly results,
+- warm-up guards: new agents surface signals as `warming_up` without firing,
+- decision policy: deterministic `allow`, `review`, or `block` annotation,
+- receipt layer: Ed25519-signed, hash-chained evidence for the same decision the
+  partner received.
+
+The older protocol transaction pipeline still exists for replay and protocol
+analysis, but it is not the default product path. Its routers are registered only
+when `PROTOCOL_FLOW_ENABLED=true`, and Layer 4 OpenAI calls are made only when
+`LAYER4_LLM_ENABLED=true`.
+
+## Legacy Protocol Scoring Components
 
 ### Layer 1: Pre-Filter
 
