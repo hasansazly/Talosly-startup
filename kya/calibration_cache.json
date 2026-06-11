@@ -1,0 +1,10 @@
+{
+  "method": "positive_recall_conformal",
+  "target_coverage": 0.95,
+  "q_hat": 0.58,
+  "threshold": 0.42,
+  "calibration_size": 200,
+  "positive_calibration_size": 200,
+  "coverage_claim": ">=95% marginal recall for labelled threats under exchangeability",
+  "created_by": "minimal KYA conformal calibration cache"
+}

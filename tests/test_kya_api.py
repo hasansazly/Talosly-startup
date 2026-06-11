@@ -189,6 +189,9 @@ def test_kya_agent_score_scores_supplied_action_when_enabled(monkeypatch):
     assert body["agent_id"] == 7
     assert body["action"] == "0xdeviating-action"
     assert body["trust_score"] <= 40
+    assert body["risk_score"] >= 60
+    assert body["conformal"]["high_risk"] is True
+    assert body["conformal"]["coverage_claim"] == ">=95% marginal recall for labelled threats under exchangeability"
     assert {"new_counterparty", "unseen_selector", "value_outlier"} <= set(body["risk_factors"])
     assert len(body["shap_top"]) == 3
     assert body["features"]["kya_new_counterparty"] is True

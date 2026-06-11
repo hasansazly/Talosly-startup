@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from backend import database as db
+from kya.conformal import evaluate_kya_risk_probability
 from kya.features import build_feature_vector
 from kya.ingest import AgentEvent
 from scoring.cost_tracker import CostTracker, CostReport, estimate_cost_usd
@@ -34,6 +35,9 @@ class AgentTrustScore:
     shap_top: list[dict[str, Any]]
     confidence: float
     layer3: dict[str, Any]
+    risk_score: int
+    risk_probability: float
+    conformal: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -56,6 +60,7 @@ async def score_agent_event(
     confidence = _confidence(layer3_result, baseline)
 
     clamped_score = max(0, min(trust_score, 100))
+    risk_score = 100 - clamped_score
     score = AgentTrustScore(
         agent_id=agent_id,
         trust_score=clamped_score,
@@ -64,6 +69,9 @@ async def score_agent_event(
         shap_top=shap_top,
         confidence=confidence,
         layer3=layer3_result.to_dict(),
+        risk_score=risk_score,
+        risk_probability=round(risk_probability, 4),
+        conformal=evaluate_kya_risk_probability(risk_probability),
     )
     await _persist_agent_score(score, action=event.tx_hash)
     return score

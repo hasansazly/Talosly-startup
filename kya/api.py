@@ -154,10 +154,12 @@ async def score_agent_action(payload: AgentActionRequest, api_key: dict = Depend
         "agent_id": payload.agent_id,
         "action": payload.action,
         "trust_score": score.trust_score,
+        "risk_score": score.risk_score,
         "decision": score.decision,
         "risk_factors": score.risk_factors,
         "shap_top": score.shap_top,
         "confidence": score.confidence,
+        "conformal": score.conformal,
         "features": features,
     }
 

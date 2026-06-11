@@ -95,6 +95,8 @@ async def test_baseline_consistent_event_scores_low_risk(score_pool):
     assert "value_outlier" not in score.risk_factors
     assert len(score.shap_top) == 3
     assert score.confidence > 0
+    assert score.risk_score == 100 - score.trust_score
+    assert score.conformal["exchangeability_required"] is True
     assert score_pool.rows[-1]["trust_score"] == score.trust_score
     assert score_pool.rows[-1]["shap_top"] == score.shap_top
 
@@ -117,6 +119,7 @@ async def test_strongly_deviating_event_scores_high_risk_with_shap(score_pool):
     score = await score_agent_event(1, event, mature_baseline())
 
     assert score.trust_score <= 40
+    assert score.conformal["high_risk"] is True
     assert {"new_counterparty", "unseen_selector", "off_hours", "cadence_break", "value_outlier"} <= set(score.risk_factors)
     assert len(score.shap_top) == 3
     assert any(item["shap"] > 0 for item in score.shap_top)

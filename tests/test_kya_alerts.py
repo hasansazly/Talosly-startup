@@ -33,6 +33,18 @@ def make_score(*, trust_score: int, risk_factors: list[str] | None = None) -> Ag
         ],
         confidence=0.91,
         layer3={"mode": "heuristic"},
+        risk_score=100 - trust_score,
+        risk_probability=round((100 - trust_score) / 100, 4),
+        conformal={
+            "high_risk": trust_score <= 58,
+            "threshold": 0.42,
+            "target_coverage": 0.95,
+            "coverage_claim": ">=95% marginal recall for labelled threats under exchangeability",
+            "exchangeability_required": True,
+            "calibration_size": 200,
+            "positive_calibration_size": 200,
+            "method": "positive_recall_conformal",
+        },
     )
 
 
