@@ -149,7 +149,9 @@ async def test_bocpd_state_roundtrip(real_db: asyncpg.Pool):
     row = await real_db.fetchrow(
         "SELECT baseline FROM agent_profiles WHERE agent_id = $1", agent_id
     )
-    stored = dict(row["baseline"])["bocpd"]
+    raw = row["baseline"]
+    loaded = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    stored = loaded["bocpd"]
 
     assert stored["event_count"] == state["event_count"] == 5
     assert stored["cp_prob"] == state["cp_prob"]
@@ -180,7 +182,8 @@ async def test_concurrent_score_same_agent_incorporates_both_events(real_db: asy
     row = await real_db.fetchrow(
         "SELECT baseline FROM agent_profiles WHERE agent_id = $1", agent_id
     )
-    baseline = dict(row["baseline"])
+    raw = row["baseline"]
+    baseline = json.loads(raw) if isinstance(raw, str) else dict(raw)
     assert baseline["event_count"] == 2, (
         f"expected 2 but got {baseline['event_count']} — "
         "the row lock is not protecting against concurrent writes"

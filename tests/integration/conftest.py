@@ -7,7 +7,8 @@ import backend.database as db_module
 
 TEST_DSN = os.environ.get(
     "TEST_DATABASE_URL",
-    "postgresql://talosly:talosly@localhost:5433/talosly_test",
+    # 5433 when using docker-compose.test.yml; 5432 for Homebrew Postgres
+    "postgresql://talosly:talosly@localhost:5432/talosly_test",
 )
 
 

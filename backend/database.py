@@ -114,6 +114,24 @@ async def get_pool() -> asyncpg.Pool:
 async def _create_tables() -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # api_keys has no FK dependencies and is referenced by protocols, agents, etc.
+        # It must be created first so those FKs resolve on a fresh database.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id SERIAL PRIMARY KEY,
+                key_hash TEXT NOT NULL UNIQUE,
+                key_prefix TEXT NOT NULL,
+                name TEXT,
+                waitlist_id INTEGER,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                requests_today INTEGER NOT NULL DEFAULT 0,
+                requests_total INTEGER NOT NULL DEFAULT 0,
+                last_used_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS protocols (
@@ -176,22 +194,6 @@ async def _create_tables() -> None:
         await conn.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS confirmed_threat BOOLEAN")
         await conn.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS feedback_note TEXT")
         await conn.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ")
-        await conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS api_keys (
-                id SERIAL PRIMARY KEY,
-                key_hash TEXT NOT NULL UNIQUE,
-                key_prefix TEXT NOT NULL,
-                name TEXT,
-                waitlist_id INTEGER,
-                is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                requests_today INTEGER NOT NULL DEFAULT 0,
-                requests_total INTEGER NOT NULL DEFAULT 0,
-                last_used_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS waitlist (
