@@ -7,17 +7,53 @@ from kya.baselines import get_baseline, update_baseline
 from kya.ingest import AgentEvent
 
 
+class _FakeTxn:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        pass
+
+
+class _FakeConn:
+    def __init__(self, pool: "FakeProfilePool") -> None:
+        self._pool = pool
+
+    def transaction(self) -> _FakeTxn:
+        return _FakeTxn()
+
+    async def fetchrow(self, query, *args):
+        return await self._pool.fetchrow(query, *args)
+
+    async def execute(self, query, *args):
+        return await self._pool.execute(query, *args)
+
+
+class _FakeAcquire:
+    def __init__(self, pool: "FakeProfilePool") -> None:
+        self._pool = pool
+
+    async def __aenter__(self) -> _FakeConn:
+        return _FakeConn(self._pool)
+
+    async def __aexit__(self, *_):
+        pass
+
+
 class FakeProfilePool:
     def __init__(self) -> None:
         self.rows = {}
 
-    async def fetchrow(self, _query, agent_id):
+    def acquire(self) -> _FakeAcquire:
+        return _FakeAcquire(self)
+
+    async def fetchrow(self, _query, agent_id, *_rest):
         baseline = self.rows.get(agent_id)
         if baseline is None:
             return None
         return {"baseline": baseline}
 
-    async def execute(self, _query, agent_id, baseline_json):
+    async def execute(self, _query, agent_id, baseline_json, *_rest):
         self.rows[agent_id] = json.loads(baseline_json)
         return "INSERT 0 1"
 
