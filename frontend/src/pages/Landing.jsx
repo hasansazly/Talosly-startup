@@ -4,7 +4,7 @@ import { applyWaitlist, getPublicSettings, getStats } from '../api.js';
 import ReceiptChainHero from '../components/ReceiptChainHero.jsx';
 
 const HERO_METRICS = [
-  ['≥95%', 'conformal coverage'],
+  ['≥95%', 'calibrated threat recall'],
   ['14ms', 'median score time'],
   ['0', 'money-path hooks'],
 ];
@@ -68,7 +68,7 @@ export default function Landing() {
             <p className="hero-copy">
               AI agents now move real money. Platforms that deploy them inherit liability
               they cannot see, reconstruct, or prove. Talosly runs the VIGIL engine:
-              coverage-guaranteed behavioral scoring, change-point detection, and
+              calibrated behavioral scoring, change-point detection, and
               cryptographically signed evidence for every decision.
             </p>
             <div className="hero-actions">
@@ -192,14 +192,14 @@ export default function Landing() {
         <div className="band-eyebrow"><span>The VIGIL Engine</span></div>
         <div className="vigil-layout">
           <div className="vigil-copy">
-            <h2>Competitors say accurate.<br />VIGIL says <em className="vigil-em">guaranteed</em>.</h2>
+            <h2>Competitors say accurate.<br />VIGIL says <em className="vigil-em">calibrated</em>.</h2>
             <p>
               Every Talosly decision runs through VIGIL: a sequence model for temporal
               pattern recognition, BOCPD for online change-point detection, conformal
-              prediction for coverage-guaranteed scoring, and a cross-agent receipt graph
-              for counterparty reputation propagation. When VIGIL produces an allow score,
-              the coverage is a mathematical construction — not a calibration heuristic.
-              That is the sentence an underwriter can price.
+              prediction for calibrated high-risk flags, and a cross-agent receipt graph
+              for counterparty reputation propagation. The conformal threshold is computed
+              from held-out calibration data and reported with its exchangeability assumption,
+              so technical customers can inspect the claim instead of taking it on faith.
             </p>
             <p style={{ marginTop: 16 }}>
               The receipt graph compounds: every new customer's receipts strengthen the
@@ -211,12 +211,12 @@ export default function Landing() {
           <div className="vigil-panel">
             <div className="vigil-panel-header">
               <span className="vigil-name-badge">VIGIL</span>
-              <span className="vigil-coverage-chip">≥ 95% coverage</span>
+              <span className="vigil-coverage-chip">≥ 95% calibrated recall</span>
             </div>
             {[
               ['Sequence model', 'Temporal pattern recognition across agent action history'],
               ['BOCPD',          'Online Bayesian change-point — detects regime shift signatures'],
-              ['Conformal',      'Distribution-free coverage guarantee · valid under any future shift'],
+              ['Conformal',      'Marginal threat-recall calibration · requires exchangeable data'],
               ['Receipt graph',  'PageRank-over-receipts · cross-agent counterparty reputation network'],
             ].map(([name, desc]) => (
               <div className="vigil-layer" key={name}>
@@ -225,10 +225,10 @@ export default function Landing() {
               </div>
             ))}
             <div className="vigil-guarantee-row">
-              <span className="vigil-guarantee-label">VIGIL allow</span>
+              <span className="vigil-guarantee-label">VIGIL flag</span>
               <span className="vigil-arrow">→</span>
-              <span className="vigil-guarantee-result">action within behavioral envelope</span>
-              <span className="vigil-coverage-chip">≥95%</span>
+              <span className="vigil-guarantee-result">calibrated high-risk threshold</span>
+              <span className="vigil-coverage-chip">≥95% recall</span>
             </div>
           </div>
         </div>
@@ -331,7 +331,7 @@ export default function Landing() {
             <h2>Every decision is provable. The graph compounds.</h2>
             <p>
               Talosly emits a cryptographically signed receipt for every scored action:
-              Ed25519-signed, SHA-256 hash-chained, with the VIGIL coverage guarantee
+              Ed25519-signed, SHA-256 hash-chained, with the VIGIL calibration metadata
               embedded alongside the score. The store is append-only — PostgreSQL
               triggers reject any UPDATE or DELETE.
             </p>
@@ -363,7 +363,7 @@ export default function Landing() {
             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
               {[
                 ['version',   'kya-action-receipt/v1'],
-                ['coverage',  'VIGIL conformal · ≥95% guaranteed'],
+                ['coverage',  'VIGIL conformal · ≥95% calibrated recall'],
                 ['signature', 'Ed25519 · base64-encoded'],
                 ['hash_valid','SHA-256 canonical JSON'],
                 ['store',     'append-only · pg triggers'],
