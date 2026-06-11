@@ -4,7 +4,7 @@ import { applyWaitlist, getPublicSettings, getStats } from '../api.js';
 import ReceiptChainHero from '../components/ReceiptChainHero.jsx';
 
 const HERO_METRICS = [
-  ['≥95%', 'target threat recall'],
+  ['≥95%', 'coverage target'],
   ['14ms', 'median score time'],
   ['0', 'money-path hooks'],
 ];
@@ -192,7 +192,7 @@ export default function Landing() {
         <div className="band-eyebrow"><span>The VIGIL Engine</span></div>
         <div className="vigil-layout">
           <div className="vigil-copy">
-            <h2>Competitors say accurate.<br />VIGIL <em className="vigil-em">targets</em> recall.</h2>
+            <h2>Competitors say accurate.<br />VIGIL says <em className="vigil-em">provable</em>.</h2>
             <p>
               Every Talosly decision runs through VIGIL: a sequence model for temporal
               pattern recognition, BOCPD for online change-point detection, conformal
@@ -211,7 +211,7 @@ export default function Landing() {
           <div className="vigil-panel">
             <div className="vigil-panel-header">
               <span className="vigil-name-badge">VIGIL</span>
-              <span className="vigil-coverage-chip">targets ≥ 95% recall</span>
+              <span className="vigil-coverage-chip">≥ 95% coverage target</span>
             </div>
             {[
               ['Sequence model', 'Temporal pattern recognition across agent action history'],
@@ -228,7 +228,7 @@ export default function Landing() {
               <span className="vigil-target-label">VIGIL flag</span>
               <span className="vigil-arrow">→</span>
               <span className="vigil-target-result">targeted high-risk threshold</span>
-              <span className="vigil-coverage-chip">targets ≥95% recall</span>
+              <span className="vigil-coverage-chip">≥95% coverage target</span>
             </div>
           </div>
         </div>
@@ -363,7 +363,7 @@ export default function Landing() {
             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
               {[
                 ['version',   'kya-action-receipt/v1'],
-                ['coverage',  'VIGIL conformal · targets ≥95% recall'],
+                ['coverage',  'VIGIL conformal · ≥95% coverage target'],
                 ['signature', 'Ed25519 · base64-encoded'],
                 ['hash_valid','SHA-256 canonical JSON'],
                 ['store',     'append-only · pg triggers'],
