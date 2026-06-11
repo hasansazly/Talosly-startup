@@ -69,24 +69,33 @@ async def get_baseline(agent_id: int) -> dict[str, Any]:
 
 
 async def update_baseline(agent_id: int, event: AgentEvent) -> dict[str, Any]:
-    """Incrementally update one agent baseline and persist it to ``agent_profiles``."""
-    baseline = await get_baseline(agent_id)
-    deviation = _detect_deviation(baseline, event)
-    updated = _apply_event(baseline, event)
-    updated["last_deviation"] = deviation
+    """Incrementally update one agent baseline and persist it to ``agent_profiles``.
 
+    Uses SELECT FOR UPDATE inside a transaction so concurrent events for the same
+    agent cannot race and silently drop BOCPD observations.
+    """
     pool = await db.get_pool()
-    await pool.execute(
-        """
-        INSERT INTO agent_profiles (agent_id, baseline, updated_at)
-        VALUES ($1, $2::jsonb, NOW())
-        ON CONFLICT (agent_id) DO UPDATE SET
-            baseline = EXCLUDED.baseline,
-            updated_at = NOW()
-        """,
-        agent_id,
-        json.dumps(updated, sort_keys=True),
-    )
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT baseline FROM agent_profiles WHERE agent_id = $1 FOR UPDATE",
+                agent_id,
+            )
+            baseline = _normalize_baseline(row["baseline"]) if row else _empty_baseline()
+            deviation = _detect_deviation(baseline, event)
+            updated = _apply_event(baseline, event)
+            updated["last_deviation"] = deviation
+            await conn.execute(
+                """
+                INSERT INTO agent_profiles (agent_id, baseline, updated_at)
+                VALUES ($1, $2::jsonb, NOW())
+                ON CONFLICT (agent_id) DO UPDATE SET
+                    baseline = EXCLUDED.baseline,
+                    updated_at = NOW()
+                """,
+                agent_id,
+                json.dumps(updated, sort_keys=True),
+            )
     return updated
 
 

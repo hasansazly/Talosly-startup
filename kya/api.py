@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from backend import database as db
 from backend.middleware.auth import verify_api_key
 from kya.config import kya_settings
+from kya.baselines import update_baseline
 from kya.features import build_feature_vector
 from kya.ingest import AgentEvent
 from kya.receipts.chain import verify_receipt
@@ -48,7 +49,7 @@ class AgentActionRequest(BaseModel):
     selector: str = ""
     timestamp: datetime | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
-    baseline: dict[str, Any] = Field(default_factory=dict)
+    baseline: dict[str, Any] | None = None
 
 
 async def _require_agent_owner(agent_id: int, api_key: dict) -> None:
@@ -148,8 +149,15 @@ async def score_agent_action(payload: AgentActionRequest, api_key: dict = Depend
         timestamp=payload.timestamp or datetime.now(timezone.utc),
         raw=payload.raw,
     )
-    score = await score_agent_event(payload.agent_id, event, payload.baseline)
-    features = build_feature_vector(event, payload.baseline)
+    if payload.baseline is not None:
+        # Stateless/replay mode: use caller-supplied baseline, DB state is not updated.
+        baseline = payload.baseline
+    else:
+        # Stateful mode (default): load from DB and update BOCPD state atomically.
+        baseline = await update_baseline(payload.agent_id, event)
+
+    score = await score_agent_event(payload.agent_id, event, baseline)
+    features = build_feature_vector(event, baseline)
     return {
         "agent_id": payload.agent_id,
         "action": payload.action,
